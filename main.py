@@ -198,7 +198,7 @@ if __name__ == "__main__":
     if dataset.save_results:
         save_dir, seq_name = eval.prepare_savedir(args, dataset)
         traj_file = save_dir / f"{seq_name}.txt"
-        recon_file = save_dir / f"{seq_name}.pt"
+        recon_file = save_dir / f"{seq_name}.ply"
         if traj_file.exists():
             traj_file.unlink()
         if recon_file.exists():
