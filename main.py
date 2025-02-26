@@ -298,7 +298,7 @@ if __name__ == "__main__":
 
     if dataset.save_results:
         save_dir, seq_name = eval.prepare_savedir(args, dataset)
-        eval.save_ATE(save_dir, f"{seq_name}.txt", dataset.timestamps, keyframes)
+        eval.save_traj(save_dir, f"{seq_name}.txt", dataset.timestamps, keyframes)
         eval.save_reconstruction(
             save_dir,
             f"{seq_name}.ply",

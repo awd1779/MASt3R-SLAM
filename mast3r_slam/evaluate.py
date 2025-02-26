@@ -20,7 +20,7 @@ def prepare_savedir(args, dataset):
     return save_dir, seq_name
 
 
-def save_ATE(
+def save_traj(
     logdir,
     logfile,
     timestamps,
@@ -45,7 +45,6 @@ def save_ATE(
 
 
 def save_reconstruction(savedir, filename, keyframes, c_conf_threshold):
-    print(c_conf_threshold)
     savedir = pathlib.Path(savedir)
     savedir.mkdir(exist_ok=True, parents=True)
     pointclouds = []
