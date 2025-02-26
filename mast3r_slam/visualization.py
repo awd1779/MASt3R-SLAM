@@ -439,6 +439,7 @@ def run_visualization(states, keyframes, main2viz, viz2main, config_path) -> Non
         if not window.is_closing:
             window.swap_buffers()
 
-    _, duration = timer.stop()
+    state = window_config.state
     window.destroy()
-    viz2main.put(WindowMsg(is_terminated=True))
+    state.is_terminated = True
+    viz2main.put(state)

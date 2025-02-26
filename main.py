@@ -290,7 +290,6 @@ if __name__ == "__main__":
                     if len(states.global_optimizer_tasks) == 0:
                         break
                 time.sleep(0.01)
-
         # log time
         if i % 30 == 0:
             FPS = i / (time.time() - fps_timer)
@@ -301,7 +300,10 @@ if __name__ == "__main__":
         save_dir, seq_name = eval.prepare_savedir(args, dataset)
         eval.save_ATE(save_dir, f"{seq_name}.txt", dataset.timestamps, keyframes)
         eval.save_reconstruction(
-            save_dir, f"{seq_name}.pt", dataset.timestamps, keyframes
+            save_dir,
+            f"{seq_name}.ply",
+            keyframes,
+            last_msg.C_conf_threshold,
         )
         eval.save_keyframes(
             save_dir / "keyframes" / seq_name, dataset.timestamps, keyframes
@@ -309,7 +311,6 @@ if __name__ == "__main__":
     if save_frames:
         savedir = pathlib.Path(f"logs/frames/{datetime_now}")
         savedir.mkdir(exist_ok=True, parents=True)
-        print(len(frames))
         for i, frame in tqdm.tqdm(enumerate(frames), total=len(frames)):
             frame = (frame * 255).clip(0, 255)
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
