@@ -233,7 +233,7 @@ if __name__ == "__main__":
         if not last_msg.is_paused:
             states.unpause()
 
-        if i == len(dataset):
+        if i == len(dataset) * dataset.stride:
             states.set_mode(Mode.TERMINATED)
             break
 
