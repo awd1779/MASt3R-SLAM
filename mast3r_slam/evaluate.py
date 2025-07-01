@@ -115,16 +115,50 @@ def save_reconstruction(savedir, filename, keyframes, c_conf_threshold):
 def save_keyframes(savedir, timestamps, keyframes: SharedKeyframes):
     savedir = pathlib.Path(savedir)
     savedir.mkdir(exist_ok=True, parents=True)
+
+    mask_savedir = savedir / "masks" # Create a subdirectory for masks
+    mask_savedir.mkdir(exist_ok=True, parents=True)
+
+    # Define a simple color map for mask visualization (BGR for OpenCV)
+    # Matches the GLSL shader for consistency (0:grey, 1:red, 2:green, etc.)
+    label_to_color_map_bgr = {
+        0: [128, 128, 128],  # Grey for label 0 (background)
+        1: [0, 0, 255],      # Red for label 1
+        2: [0, 255, 0],      # Green for label 2
+        3: [255, 0, 0],      # Blue for label 3
+        4: [0, 255, 255],    # Yellow for label 4
+        5: [255, 0, 255],    # Magenta for label 5
+        6: [255, 255, 0],    # Cyan for label 6
+        # Add more if needed, or a default color
+    }
+    default_mask_color_bgr = [30, 30, 30] # Dark grey for undefined labels
+
     for i in range(len(keyframes)):
         keyframe = keyframes[i]
         t = timestamps[keyframe.frame_id]
-        filename = savedir / f"{t}.png"
+
+        # Save original keyframe image
+        img_filename = savedir / f"{t}.png"
         cv2.imwrite(
-            str(filename),
+            str(img_filename),
             cv2.cvtColor(
                 (keyframe.uimg.cpu().numpy() * 255).astype(np.uint8), cv2.COLOR_RGB2BGR
             ),
         )
+
+        # Save segmentation mask if available
+        if keyframe.raw_segmentation_mask is not None:
+            mask_tensor = keyframe.raw_segmentation_mask.cpu().numpy().astype(np.uint8)
+            h, w = mask_tensor.shape
+            colored_mask_img = np.zeros((h, w, 3), dtype=np.uint8)
+
+            unique_labels_in_mask = np.unique(mask_tensor)
+            for label_id in unique_labels_in_mask:
+                color_bgr = label_to_color_map_bgr.get(label_id, default_mask_color_bgr)
+                colored_mask_img[mask_tensor == label_id] = color_bgr
+
+            mask_filename = mask_savedir / f"{t}_mask.png"
+            cv2.imwrite(str(mask_filename), colored_mask_img)
 
 
 def save_ply(filename, points, colors, labels, label_map): # Added labels and label_map
