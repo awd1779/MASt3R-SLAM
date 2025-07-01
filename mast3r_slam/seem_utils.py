@@ -245,4 +245,3 @@ if __name__ == '__main__':
             traceback.print_exc()
 
         print("\nSAM utils __main__ test complete.")
-```
