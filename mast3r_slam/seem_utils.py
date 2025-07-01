@@ -1,129 +1,248 @@
+# mast3r_slam/seem_utils.py
 """
-Utilities for SEEM model loading and inference.
+Utilities for SAM model loading and inference.
 """
 import torch
 import numpy as np
+import cv2 # OpenCV will be used for image format conversion if needed
 
-# Placeholder for the actual SEEM model
-# The user will need to replace this with their SEEM model instance
-_seem_model = None
+# Attempt to import SAM specific modules
+try:
+    from segment_anything import sam_model_registry, SamAutomaticMaskGenerator, SamPredictor
+    SAM_AVAILABLE = True
+except ImportError:
+    SAM_AVAILABLE = False
+    print("[Warning] segment_anything library not found. SAM functionalities will not be available.")
+    print("[Warning] Please install it via: pip install git+https://github.com/facebookresearch/segment-anything.git")
 
-def load_seem_model(checkpoint_path: str = "path/to/seem_checkpoint.pth", device: str = "cuda"):
-    """
-    Loads the SEEM model.
-    This is a placeholder and should be implemented by the user.
-    """
-    global _seem_model
-    # Replace with actual model loading logic
-    # Example:
-    # from seem.some_module import SEEMModel
-    # _seem_model = SEEMModel()
-    # _seem_model.load_state_dict(torch.load(checkpoint_path))
-    # _seem_model.to(device)
-    # _seem_model.eval()
-    print(f"[INFO] Placeholder: SEEM model loading would happen here for checkpoint: {checkpoint_path}")
-    # As a mock, we'll just set it to a dummy value
-    _seem_model = "SEEM_MODEL_LOADED"
-    return _seem_model
+_sam_model = None
+_sam_mask_generator = None
 
-def run_seem_inference(image_tensor: torch.Tensor, vocabulary: list = None):
+# --- Configuration for SAM ---
+# TODO: User should update these paths and model types as needed
+SAM_CHECKPOINT_PATH = "checkpoints/sam_vit_b_01ec64.pth"  # UPDATE THIS PATH
+SAM_MODEL_TYPE = "vit_b"
+# Use "cuda" if GPU is available, otherwise "cpu"
+SAM_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+# -----------------------------
+
+def load_sam_model(checkpoint_path: str = SAM_CHECKPOINT_PATH,
+                   model_type: str = SAM_MODEL_TYPE,
+                   device: str = SAM_DEVICE):
     """
-    Runs SEEM model inference on the input image.
-    This is a placeholder and should be implemented by the user.
+    Loads the SAM model and prepares the automatic mask generator.
+    """
+    global _sam_model, _sam_mask_generator, SAM_AVAILABLE
+
+    if not SAM_AVAILABLE:
+        raise ImportError("segment_anything library is required but not installed.")
+
+    if _sam_mask_generator is not None:
+        print("[INFO] SAM model and mask generator already loaded.")
+        return _sam_model, _sam_mask_generator
+
+    try:
+        print(f"[INFO] Loading SAM model: type='{model_type}' from checkpoint='{checkpoint_path}' to device='{device}'")
+        _sam_model = sam_model_registry[model_type](checkpoint=checkpoint_path)
+        _sam_model.to(device=device)
+        _sam_model.eval()
+
+        # Initialize the automatic mask generator
+        # You can tune the parameters of SamAutomaticMaskGenerator for different results
+        # See: https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/automatic_mask_generator.py
+        _sam_mask_generator = SamAutomaticMaskGenerator(
+            model=_sam_model,
+            points_per_side=32,  # Default is 32. Lower for faster, coarser; higher for slower, finer.
+            pred_iou_thresh=0.88, # Default is 0.88.
+            stability_score_thresh=0.95, # Default is 0.95
+            # min_mask_region_area=100, # Example: filter out very small masks
+            # box_nms_thresh=0.7, # Default
+            # crop_n_layers=0, # Default
+            # crop_nms_thresh=0.7, # Default
+            # output_mode="binary_mask", # Default
+        )
+        print("[INFO] SAM model and SamAutomaticMaskGenerator loaded successfully.")
+    except FileNotFoundError:
+        print(f"[ERROR] SAM Checkpoint file not found at: {checkpoint_path}")
+        print(f"[ERROR] Please download the SAM checkpoint and update SAM_CHECKPOINT_PATH in mast3r_slam/seem_utils.py")
+        _sam_model = None
+        _sam_mask_generator = None
+        raise
+    except Exception as e:
+        print(f"[Error] Failed to load SAM model or initialize generator: {e}")
+        _sam_model = None
+        _sam_mask_generator = None
+        raise e
+
+    return _sam_model, _sam_mask_generator
+
+def run_sam_inference(image_tensor_chw: torch.Tensor, vocabulary: list = None):
+    """
+    Runs SAM automatic mask generation on the input image.
 
     Args:
-        image_tensor (torch.Tensor): Input image tensor (e.g., C x H x W).
-        vocabulary (list, optional): List of strings for open-vocabulary detection.
+        image_tensor_chw (torch.Tensor): Input image tensor (C x H x W), RGB, values 0-1.
+                                         This is assumed to be the `frame.rgb` tensor.
+        vocabulary (list, optional): Not directly used by SamAutomaticMaskGenerator but kept for API consistency.
 
     Returns:
         tuple: (segmentation_mask, label_map)
-            - segmentation_mask (torch.Tensor): HxW tensor with integer IDs for each segment.
-            - label_map (dict): Dictionary mapping segment IDs to label strings.
-                                e.g., {1: "object_a", 2: "object_b"}
+            - segmentation_mask (torch.Tensor): HxW tensor with integer instance IDs for each segment.
+                                                0 is typically reserved for unassigned/background.
+            - label_map (dict): Dictionary mapping segment IDs to generic label strings
+                                (e.g., {1: "object_1", 2: "object_2", ...}).
     """
-    global _seem_model
-    if _seem_model is None:
-        # Attempt to load with a default path if not already loaded
-        # This is for demonstration; ideally, loading is explicit.
-        load_seem_model()
-        if _seem_model is None: # Check again if loading failed
-            raise RuntimeError("SEEM model is not loaded. Call load_seem_model() first.")
+    global _sam_mask_generator, SAM_DEVICE, SAM_AVAILABLE
 
-    # Placeholder inference logic
-    # Replace with actual SEEM model inference calls
-    print(f"[INFO] Placeholder: SEEM inference would run on image of shape {image_tensor.shape}")
+    if not SAM_AVAILABLE:
+        raise ImportError("segment_anything library is required but not installed.")
 
-    # Example dummy output:
-    # Assume image_tensor is C x H x W
-    _c, h, w = image_tensor.shape
+    if _sam_mask_generator is None:
+        print("[INFO] SAM model not loaded. Attempting to load now...")
+        # This will use the global SAM_CHECKPOINT_PATH, SAM_MODEL_TYPE, SAM_DEVICE
+        load_sam_model()
+        if _sam_mask_generator is None: # Check again if loading failed
+            raise RuntimeError("SAM model could not be loaded. Please check SAM_CHECKPOINT_PATH and ensure the file exists.")
 
-    # Create a dummy segmentation mask simulating more object-like regions
-    dummy_segmentation_mask = torch.zeros((h, w), dtype=torch.int64, device=image_tensor.device) # Default to label 0
+    _c, h, w = image_tensor_chw.shape
 
-    # Define a "central object" region (e.g., a simulated desk)
-    # Covers from 1/3 to 2/3 of height, and 1/4 to 3/4 of width
-    center_obj_h_start = h // 3
-    center_obj_h_end = 2 * h // 3
-    center_obj_w_start = w // 4
-    center_obj_w_end = 3 * w // 4
-    dummy_segmentation_mask[center_obj_h_start:center_obj_h_end, center_obj_w_start:center_obj_w_end] = 1
+    # SAM's SamAutomaticMaskGenerator expects image in HWC uint8 format (0-255), BGR or RGB.
+    # The documentation suggests it handles RGB internally.
+    # Input image_tensor_chw is C x H x W, float (0-1) from frame.rgb (which is normalized)
+    # Let's assume frame.rgb was derived from an RGB image.
 
-    # Define a "side object" region (e.g., a simulated chair, to the left of center)
-    # Covers from 1/2 to 5/6 of height, and 1/8 to 1/4 of width (left side)
-    side_obj_h_start = h // 2
-    side_obj_h_end = 5 * h // 6
-    side_obj_w_start = w // 8
-    side_obj_w_end = w // 4
-    # Ensure this new region for label 2 doesn't overwrite label 1 if they overlap
-    # A simple way is to only apply label 2 where current label is 0
-    mask_for_side_obj = torch.zeros_like(dummy_segmentation_mask)
-    mask_for_side_obj[side_obj_h_start:side_obj_h_end, side_obj_w_start:side_obj_w_end] = 1
-    dummy_segmentation_mask[(dummy_segmentation_mask == 0) & (mask_for_side_obj == 1)] = 2
+    # Convert CHW (0-1 float) to HWC (0-255 uint8)
+    image_hwc_uint8 = (image_tensor_chw.permute(1, 2, 0) * 255.0).byte().cpu().numpy()
 
-    # Create a dummy label map
-    dummy_label_map = {
-        0: "background",
-        1: "simulated_central_object",
-        2: "simulated_side_object"
-    }
+    # SAM's automatic mask generator can be a bit slow.
+    # print(f"[INFO] Running SAM Automatic Mask Generation on image of shape {image_hwc_uint8.shape}...")
+    masks = _sam_mask_generator.generate(image_hwc_uint8)
 
-    if vocabulary:
-        # If vocabulary is provided, try to use it for labels
-        # This is a very simplified mock
-        if len(vocabulary) > 0:
-            dummy_label_map[1] = vocabulary[0]
-        if len(vocabulary) > 1:
-            dummy_label_map[2] = vocabulary[1]
+    if not masks:
+        # print("[Warning] SAM produced no masks for the current image.")
+        final_segmentation_mask = torch.zeros((h, w), dtype=torch.int64, device=SAM_DEVICE)
+        label_map = {0: "background_or_no_sam_masks"}
+        return final_segmentation_mask, label_map
 
-    print(f"[INFO] Placeholder: SEEM produced dummy mask of shape {dummy_segmentation_mask.shape} and labels: {dummy_label_map}")
+    # Sort masks by area (largest first). This helps ensure that if smaller masks are contained
+    # within larger ones, the larger one (processed first) defines the base segment ID.
+    masks = sorted(masks, key=lambda x: x['area'], reverse=True)
 
-    return dummy_segmentation_mask, dummy_label_map
+    final_segmentation_mask = torch.zeros((h, w), dtype=torch.int64, device=SAM_DEVICE)
+    label_map = {0: "background"} # Label 0 for background
+
+    current_label_id = 1
+    for i, mask_data in enumerate(masks):
+        mask_h, mask_w = mask_data['segmentation'].shape
+        # Basic check, though SAM's masks should match input image dimensions
+        if mask_h != h or mask_w != w:
+            print(f"[Warning] SAM mask {i} shape {mask_h}x{mask_w} differs from image {h}x{w}. Skipping this mask.")
+            continue
+
+        segment = torch.from_numpy(mask_data['segmentation']).to(device=SAM_DEVICE)
+
+        # Assign current_label_id to pixels where segment is true AND final_mask is still 0 (background)
+        # This gives priority to larger masks (due to sorting) in overlapping regions.
+        valid_pixels_for_current_label = segment & (final_segmentation_mask == 0)
+        final_segmentation_mask[valid_pixels_for_current_label] = current_label_id
+
+        if valid_pixels_for_current_label.any(): # Only add label if it was actually used
+            label_map[current_label_id] = f"object_{current_label_id}"
+            current_label_id += 1
+            if current_label_id > 255: # Max for uchar label_id in PLY
+                # print("[Warning] Reached max label_id (255) for uchar. Subsequent segments will be ignored for distinct labeling in PLY.")
+                break
+
+    # print(f"[INFO] SAM produced {len(masks)} raw masks, resulting in {current_label_id-1} labeled segments.")
+    return final_segmentation_mask, label_map
 
 if __name__ == '__main__':
     # Example Usage (for testing this file directly)
-    print("Testing SEEM utils placeholders...")
+    if not SAM_AVAILABLE:
+        print("Cannot run SAM example: segment_anything library not installed.")
+    else:
+        print("Testing SAM utils...")
+        print(f"Attempting to use device: {SAM_DEVICE}")
+        print(f"Looking for SAM checkpoint at: {SAM_CHECKPOINT_PATH} with model type: {SAM_MODEL_TYPE}")
 
-    # 1. Load the model (placeholder)
-    load_seem_model()
+        # 1. Load the model (ensure SAM_CHECKPOINT_PATH is correct)
+        try:
+            load_sam_model() # Uses global path and type
 
-    # 2. Create a dummy image tensor
-    # (Batch x Channels x Height x Width) - SEEM might expect BGR or RGB, check SEEM's requirements
-    # For this test, let's assume a single image, 3 channels, 480x640
-    dummy_image = torch.rand(3, 480, 640).cuda()
+            dummy_h, dummy_w = 240, 320 # Smaller image for faster testing
+            print(f"Creating a dummy test image of size {dummy_h}x{dummy_w}")
 
-    # 3. Run inference (placeholder)
-    seg_mask, labels = run_seem_inference(dummy_image, vocabulary=["cat", "dog_face"])
+            dummy_image_np_hwc_uint8 = np.zeros((dummy_h, dummy_w, 3), dtype=np.uint8)
+            # Simple pattern: red square, green circle
+            cv2.rectangle(dummy_image_np_hwc_uint8, (dummy_w//4, dummy_h//4), (dummy_w//2, dummy_h//2), (200,0,0), -1) # BGR Red
+            cv2.circle(dummy_image_np_hwc_uint8, (3*dummy_w//4, 3*dummy_h//4), dummy_h//5, (0,200,0), -1) # BGR Green
 
-    print("\nTest Output:")
-    print("Segmentation Mask shape:", seg_mask.shape)
-    print("Segmentation Mask (unique values):", torch.unique(seg_mask))
-    print("Labels:", labels)
+            # Convert HWC uint8 (0-255) BGR (from OpenCV) to CHW float (0-1) RGB
+            dummy_image_rgb_hwc_float = cv2.cvtColor(dummy_image_np_hwc_uint8, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+            dummy_image_tensor_chw = torch.from_numpy(dummy_image_rgb_hwc_float).permute(2,0,1).to(SAM_DEVICE)
 
-    # Test with a different image size
-    dummy_image_2 = torch.rand(3, 256, 320).cuda()
-    seg_mask_2, labels_2 = run_seem_inference(dummy_image_2)
-    print("\nTest Output 2:")
-    print("Segmentation Mask 2 shape:", seg_mask_2.shape)
-    print("Labels 2:", labels_2)
+            print(f"Running SAM inference on dummy image...")
+            seg_mask, labels = run_sam_inference(dummy_image_tensor_chw)
 
-    print("\nSEEM utils placeholder test complete.")
+            print("\nTest Output from __main__:")
+            print("Segmentation Mask shape:", seg_mask.shape)
+            print("Segmentation Mask device:", seg_mask.device)
+            unique_labels_found = torch.unique(seg_mask)
+            print("Segmentation Mask (unique values):", unique_labels_found)
+            print("Labels found in map:", labels)
+
+            # Basic check: ensure all unique labels in mask are in the label_map
+            for ul in unique_labels_found.tolist():
+                if ul not in labels:
+                    print(f"[ERROR] Unique label {ul} from mask is NOT in label_map!")
+
+
+            # Visualize the mask (optional, requires opencv and matplotlib)
+            try:
+                import matplotlib.pyplot as plt
+                print("Attempting to visualize SAM test output using Matplotlib...")
+                plt.figure(figsize=(12,6))
+
+                plt.subplot(1, 2, 1)
+                plt.imshow(cv2.cvtColor(dummy_image_np_hwc_uint8, cv2.COLOR_BGR2RGB)) # Show original RGB
+                plt.title("Original Test Image")
+                plt.axis('off')
+
+                # Create a colored version of the mask for visualization
+                colored_seg_mask_vis = np.zeros((dummy_h, dummy_w, 3), dtype=np.uint8)
+                # Use a more varied color generation for many segments
+                np.random.seed(0) # for consistent colors
+                viz_colors = np.random.randint(0, 255, size=(len(labels)+1, 3), dtype=np.uint8)
+
+                for label_id_val in unique_labels_found.tolist():
+                    if label_id_val == 0 and "background" in labels.get(0,"").lower() : # Special handling for background
+                         colored_seg_mask_vis[seg_mask.cpu().numpy() == label_id_val] = [128, 128, 128] # Grey for background
+                    elif label_id_val != 0 :
+                         colored_seg_mask_vis[seg_mask.cpu().numpy() == label_id_val] = viz_colors[label_id_val % len(viz_colors)]
+
+
+                plt.subplot(1, 2, 2)
+                plt.imshow(colored_seg_mask_vis)
+                plt.title(f"SAM Segmentation Overlay ({len(unique_labels_found)-1} segments found)")
+                plt.axis('off')
+
+                output_filename = "sam_test_output.png"
+                plt.savefig(output_filename)
+                print(f"Saved SAM test output visualization to {output_filename}")
+            except ImportError:
+                print("Matplotlib not installed, skipping visualization of SAM test output.")
+            except Exception as e_vis:
+                print(f"Error during SAM test visualization: {e_vis}")
+
+        except FileNotFoundError:
+            # This is already handled in load_sam_model, but good to catch here for the test script
+            print(f"[CRITICAL ERROR in __main__] SAM checkpoint file not found. Please check SAM_CHECKPOINT_PATH in seem_utils.py.")
+        except ImportError:
+             print(f"[CRITICAL ERROR in __main__] 'segment_anything' library not found or other import error.")
+        except Exception as e:
+            print(f"Error in SAM utils test (__main__): {e}")
+            import traceback
+            traceback.print_exc()
+
+        print("\nSAM utils __main__ test complete.")
+```
