@@ -57,25 +57,34 @@ def run_seem_inference(image_tensor: torch.Tensor, vocabulary: list = None):
     # Assume image_tensor is C x H x W
     _c, h, w = image_tensor.shape
 
-    # Create a dummy segmentation mask with a few segments
-    # Make segments larger and more distinct for better visibility
+    # Create a dummy segmentation mask simulating more object-like regions
     dummy_segmentation_mask = torch.zeros((h, w), dtype=torch.int64, device=image_tensor.device) # Default to label 0
 
-    h_half = h // 2
-    w_half = w // 2
+    # Define a "central object" region (e.g., a simulated desk)
+    # Covers from 1/3 to 2/3 of height, and 1/4 to 3/4 of width
+    center_obj_h_start = h // 3
+    center_obj_h_end = 2 * h // 3
+    center_obj_w_start = w // 4
+    center_obj_w_end = 3 * w // 4
+    dummy_segmentation_mask[center_obj_h_start:center_obj_h_end, center_obj_w_start:center_obj_w_end] = 1
 
-    # Label ID 1: Top-left quadrant (approximately)
-    dummy_segmentation_mask[0:h_half, 0:w_half] = 1
-
-    # Label ID 2: Bottom-right quadrant (approximately)
-    # Ensure this doesn't overlap with label 1 if h or w is odd, though simple slicing handles it.
-    dummy_segmentation_mask[h_half:h, w_half:w] = 2
+    # Define a "side object" region (e.g., a simulated chair, to the left of center)
+    # Covers from 1/2 to 5/6 of height, and 1/8 to 1/4 of width (left side)
+    side_obj_h_start = h // 2
+    side_obj_h_end = 5 * h // 6
+    side_obj_w_start = w // 8
+    side_obj_w_end = w // 4
+    # Ensure this new region for label 2 doesn't overwrite label 1 if they overlap
+    # A simple way is to only apply label 2 where current label is 0
+    mask_for_side_obj = torch.zeros_like(dummy_segmentation_mask)
+    mask_for_side_obj[side_obj_h_start:side_obj_h_end, side_obj_w_start:side_obj_w_end] = 1
+    dummy_segmentation_mask[(dummy_segmentation_mask == 0) & (mask_for_side_obj == 1)] = 2
 
     # Create a dummy label map
     dummy_label_map = {
-        0: "background_and_other_quadrants",
-        1: "dummy_TL_quadrant",  # Top-Left
-        2: "dummy_BR_quadrant"   # Bottom-Right
+        0: "background",
+        1: "simulated_central_object",
+        2: "simulated_side_object"
     }
 
     if vocabulary:
