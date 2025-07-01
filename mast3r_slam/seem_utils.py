@@ -58,16 +58,24 @@ def run_seem_inference(image_tensor: torch.Tensor, vocabulary: list = None):
     _c, h, w = image_tensor.shape
 
     # Create a dummy segmentation mask with a few segments
-    # Let's say 3 segments: background (0), object1 (1), object2 (2)
-    dummy_segmentation_mask = torch.zeros((h, w), dtype=torch.int64, device=image_tensor.device)
-    dummy_segmentation_mask[h//4:h//2, w//4:w//2] = 1  # Object 1
-    dummy_segmentation_mask[h//2:3*h//4, w//2:3*w//4] = 2 # Object 2
+    # Make segments larger and more distinct for better visibility
+    dummy_segmentation_mask = torch.zeros((h, w), dtype=torch.int64, device=image_tensor.device) # Default to label 0
+
+    h_half = h // 2
+    w_half = w // 2
+
+    # Label ID 1: Top-left quadrant (approximately)
+    dummy_segmentation_mask[0:h_half, 0:w_half] = 1
+
+    # Label ID 2: Bottom-right quadrant (approximately)
+    # Ensure this doesn't overlap with label 1 if h or w is odd, though simple slicing handles it.
+    dummy_segmentation_mask[h_half:h, w_half:w] = 2
 
     # Create a dummy label map
     dummy_label_map = {
-        0: "background", # Optional: SEEM might not label background explicitly
-        1: "dummy_object_1",
-        2: "dummy_object_2"
+        0: "background_and_other_quadrants",
+        1: "dummy_TL_quadrant",  # Top-Left
+        2: "dummy_BR_quadrant"   # Bottom-Right
     }
 
     if vocabulary:
