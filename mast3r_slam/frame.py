@@ -5,7 +5,7 @@ import lietorch
 import torch
 from mast3r_slam.mast3r_utils import resize_img
 from mast3r_slam.config import config
-from .seem_utils import load_seem_model, run_seem_inference # Added import
+from .seem_utils import load_sam_model, run_sam_inference # Changed to load_sam_model
 
 
 class Mode(Enum):
