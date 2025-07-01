@@ -111,14 +111,17 @@ class Frame:
         if self.raw_segmentation_mask is not None and self.X_canon is not None:
             # X_canon is (N_points, 3), where N_points is typically h*w
             # raw_segmentation_mask is (h_mask, w_mask)
-            # self.img_shape is typically tensor([[h, w]]), shape (1,2)
+            # self.img_shape can be tensor([h, w]) or tensor([[h, w]])
 
-            # Correctly extract h_proc, w_proc by flattening img_shape first
-            img_shape_list = self.img_shape.flatten().cpu().tolist()
-            if len(img_shape_list) == 2:
-                h_proc, w_proc = img_shape_list
+            current_img_shape_tensor = self.img_shape.cpu()
+            if current_img_shape_tensor.ndim == 1 and current_img_shape_tensor.numel() == 2:
+                # Shape is (2,), e.g., tensor([h, w])
+                h_proc, w_proc = current_img_shape_tensor.tolist()
+            elif current_img_shape_tensor.ndim == 2 and current_img_shape_tensor.shape[0] == 1 and current_img_shape_tensor.shape[1] == 2:
+                # Shape is (1, 2), e.g., tensor([[h, w]])
+                h_proc, w_proc = current_img_shape_tensor[0].tolist()
             else:
-                print(f"[Error] Frame {self.frame_id}: self.img_shape has unexpected format: {self.img_shape}. Cannot determine h_proc, w_proc.")
+                print(f"[Error] Frame {self.frame_id}: self.img_shape has unexpected format. Shape: {current_img_shape_tensor.shape}, Value: {current_img_shape_tensor}. Cannot determine h_proc, w_proc.")
                 self.point_labels = None
                 return # Exit early if dimensions can't be determined
 
