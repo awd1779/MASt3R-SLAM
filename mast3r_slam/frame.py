@@ -199,10 +199,10 @@ def create_frame(i, img, T_WC, img_size=512, device="cuda:0"):
 
     # Run SAM inference
     # Vocabulary is not directly used by SamAutomaticMaskGenerator but kept for API consistency.
-    raw_mask, label_map_from_seem = run_seem_inference(seem_input_tensor)
+    raw_mask, label_map_from_sam = run_sam_inference(seem_input_tensor) # Changed to run_sam_inference
 
     frame.raw_segmentation_mask = raw_mask.to(device) # Ensure mask is on the same device as other frame data
-    frame.label_map = label_map_from_seem
+    frame.label_map = label_map_from_sam # Changed variable name for consistency
 
     # Note: frame.point_labels will be populated in update_pointmap
     return frame
