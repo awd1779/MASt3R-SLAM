@@ -192,12 +192,13 @@ def create_frame(i, img, T_WC, img_size=512, device="cuda:0"):
     seem_input_image_np = frame.uimg.numpy() # uimg is already a tensor, get its numpy array
     seem_input_tensor = torch.from_numpy(seem_input_image_np).permute(2, 0, 1).float().to(device) # C, H, W
 
-    # Ensure SEEM model is loaded (placeholder will try to load if not)
-    # In a real scenario, model loading should be handled more explicitly, e.g., in main.py
-    load_seem_model() # TODO: User should manage SEEM model loading path and device
+    # Ensure SAM model is loaded.
+    # In a real scenario, model loading might be handled more explicitly at the start of main.py
+    # The load_sam_model function is designed to load only once.
+    load_sam_model() # Changed from load_seem_model. TODO: User should manage SAM model loading path and device in seem_utils.py
 
-    # Run SEEM inference
-    # Vocabulary can be passed here if needed, e.g. from config
+    # Run SAM inference
+    # Vocabulary is not directly used by SamAutomaticMaskGenerator but kept for API consistency.
     raw_mask, label_map_from_seem = run_seem_inference(seem_input_tensor)
 
     frame.raw_segmentation_mask = raw_mask.to(device) # Ensure mask is on the same device as other frame data
