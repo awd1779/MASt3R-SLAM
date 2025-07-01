@@ -139,16 +139,31 @@ class Window(WindowEvents):
             C = keyframe.get_average_conf().cpu().numpy().astype(np.float32)
 
             if keyframe.frame_id not in self.textures:
-                ptex = self.ctx.texture((w, h), 3, dtype="f4", alignment=4)
-                ctex = self.ctx.texture((w, h), 1, dtype="f4", alignment=4)
-                itex = self.ctx.texture((w, h), 3, dtype="f4", alignment=4)
-                self.textures[keyframe.frame_id] = ptex, ctex, itex
-                ptex, ctex, itex = self.textures[keyframe.frame_id]
-                itex.write(keyframe.uimg.numpy().astype(np.float32).tobytes())
+                ptex = self.ctx.texture((w, h), 3, dtype="f4", alignment=4) # Point coordinates
+                ctex = self.ctx.texture((w, h), 1, dtype="f4", alignment=4) # Confidence
+                itex = self.ctx.texture((w, h), 3, dtype="f4", alignment=4) # Image texture / depth color
+                ltex = self.ctx.texture((w, h), 1, dtype="i4", alignment=4) # Label texture (integer IDs)
+                self.textures[keyframe.frame_id] = ptex, ctex, itex, ltex
 
-            ptex, ctex, itex = self.textures[keyframe.frame_id]
+                ptex, ctex, itex, ltex = self.textures[keyframe.frame_id]
+                itex.write(keyframe.uimg.numpy().astype(np.float32).tobytes()) # Write original image once
+
+            ptex, ctex, itex, ltex = self.textures[keyframe.frame_id]
             ptex.write(X.tobytes())
             ctex.write(C.tobytes())
+            if keyframe.point_labels is not None:
+                # Ensure point_labels is correctly shaped (h*w, 1) -> (h, w) for texture
+                point_labels_hw_flat = keyframe.point_labels.cpu().numpy().astype(np.int32)
+                if point_labels_hw_flat.shape[0] == h * w:
+                    point_labels_hw = point_labels_hw_flat.reshape(h, w)
+                    ltex.write(point_labels_hw.tobytes())
+                else:
+                    # Create an empty label texture if dimensions mismatch or no labels
+                    ltex.write(np.zeros((h,w), dtype=np.int32).tobytes())
+            else:
+                # Create an empty label texture if no labels
+                ltex.write(np.zeros((h,w), dtype=np.int32).tobytes())
+
 
         for kf_idx in range(N_keyframes):
             keyframe = self.keyframes[kf_idx]
@@ -193,14 +208,27 @@ class Window(WindowEvents):
             X = self.frame_X(curr_frame)
             C = curr_frame.C.cpu().numpy().astype(np.float32)
             if "curr" not in self.textures:
-                ptex = self.ctx.texture((w, h), 3, dtype="f4", alignment=4)
-                ctex = self.ctx.texture((w, h), 1, dtype="f4", alignment=4)
-                itex = self.ctx.texture((w, h), 3, dtype="f4", alignment=4)
-                self.textures["curr"] = ptex, ctex, itex
-            ptex, ctex, itex = self.textures["curr"]
+                ptex = self.ctx.texture((w, h), 3, dtype="f4", alignment=4) # Points
+                ctex = self.ctx.texture((w, h), 1, dtype="f4", alignment=4) # Confidence
+                itex = self.ctx.texture((w, h), 3, dtype="f4", alignment=4) # Image / Depth Color
+                ltex = self.ctx.texture((w, h), 1, dtype="i4", alignment=4) # Labels
+                self.textures["curr"] = ptex, ctex, itex, ltex
+
+            ptex, ctex, itex, ltex = self.textures["curr"]
             ptex.write(X.tobytes())
             ctex.write(C.tobytes())
-            itex.write(depth2rgb(X[..., -1], colormap="turbo"))
+            itex.write(depth2rgb(X[..., -1], colormap="turbo")) # Default view for current pointmap often uses depth coloring
+
+            if curr_frame.point_labels is not None:
+                point_labels_hw_flat = curr_frame.point_labels.cpu().numpy().astype(np.int32)
+                if point_labels_hw_flat.shape[0] == h * w:
+                    point_labels_hw = point_labels_hw_flat.reshape(h,w)
+                    ltex.write(point_labels_hw.tobytes())
+                else:
+                    ltex.write(np.zeros((h,w), dtype=np.int32).tobytes())
+            else:
+                ltex.write(np.zeros((h,w), dtype=np.int32).tobytes())
+
             self.render_pointmap(
                 curr_frame.T_WC.cpu(),
                 w,
@@ -208,7 +236,8 @@ class Window(WindowEvents):
                 ptex,
                 ctex,
                 itex,
-                use_img=True,
+                ltex, # Pass the new label texture
+                use_img=True, # This might be overridden by label display
                 depth_bias=self.depth_bias,
             )
 
@@ -248,6 +277,14 @@ class Window(WindowEvents):
         _, self.show_all = imgui.checkbox("show all", self.show_all)
         imgui.same_line()
         _, self.follow_cam = imgui.checkbox("follow cam", self.follow_cam)
+
+        imgui.spacing()
+        # Get current value from shader if possible, or use a Python-side variable
+        # For simplicity, let's assume self.show_labels is a Python variable controlling the uniform
+        if not hasattr(self, 'show_labels'):
+            self.show_labels = False # Initialize if it doesn't exist
+        _, self.show_labels = imgui.checkbox("Show Labels", self.show_labels)
+
 
         imgui.spacing()
         shader_options = [
@@ -331,11 +368,13 @@ class Window(WindowEvents):
     def send_msg(self):
         self.viz2main.put(self.state)
 
-    def render_pointmap(self, T_WC, w, h, ptex, ctex, itex, use_img=True, depth_bias=0):
+    def render_pointmap(self, T_WC, w, h, ptex, ctex, itex, ltex, use_img=True, depth_bias=0): # Added ltex
         w, h = int(w), int(h)
-        ptex.use(0)
-        ctex.use(1)
-        itex.use(2)
+        ptex.use(0) # Point coordinates
+        ctex.use(1) # Confidence
+        itex.use(2) # Image for texturing / depth color
+        ltex.use(3) # Labels
+
         model = T_WC.matrix().numpy().astype(np.float32).T
 
         vao = self.ctx.vertex_array(self.pointmap_prog, [], skip_errors=True)
@@ -343,13 +382,30 @@ class Window(WindowEvents):
         vao.program["m_model"].write(model)
         vao.program["m_proj"].write(self.camera.proj_mat.gl_matrix())
 
-        vao.program["pointmap"].value = 0
-        vao.program["confs"].value = 1
-        vao.program["img"].value = 2
+        vao.program["pointmap_texture"].value = 0 # Renamed for clarity, was "pointmap"
+        vao.program["confidence_texture"].value = 1 # Renamed for clarity, was "confs"
+        vao.program["image_texture"].value = 2 # Renamed for clarity, was "img"
+        vao.program["label_texture"].value = 3 # New label texture sampler
+
         vao.program["width"].value = w
         vao.program["height"].value = h
         vao.program["conf_threshold"] = self.state.C_conf_threshold
-        vao.program["use_img"] = use_img
+        vao.program["use_img_texture"] = use_img # Renamed for clarity, was "use_img"
+
+        # Shader Program Uniforms for Labels (ensure shader supports these)
+        if "u_show_labels" in vao.program:
+            vao.program["u_show_labels"].value = self.show_labels
+
+        # Example: Define a few fixed colors in Python and pass them if shader expects u_label_colors
+        # This part depends heavily on how the shader will map label IDs to colors.
+        # For a simple hardcoded shader map, this might not be needed here.
+        # If shader uses an array like u_label_colors[10]:
+        # default_colors = [ (1.0,0.0,0.0), (0.0,1.0,0.0), (0.0,0.0,1.0), (1.0,1.0,0.0), ... ]
+        # if "u_label_colors[0]" in vao.program: # Check for array presence
+        #     for i in range(min(len(default_colors), 10)): # Assuming shader has max 10 colors
+        #         vao.program[f"u_label_colors[{i}]"].value = default_colors[i]
+
+
         if "depth_bias" in self.pointmap_prog:
             vao.program["depth_bias"] = depth_bias
         vao.render(mode=moderngl.POINTS, vertices=w * h)
