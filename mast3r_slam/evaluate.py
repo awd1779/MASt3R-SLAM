@@ -241,13 +241,13 @@ def save_ply(filename, points, colors, labels, label_map): # Added labels and la
     pcd_dtype = [
         ("x", "f4"), ("y", "f4"), ("z", "f4"),
         ("red", "u1"), ("green", "u1"), ("blue", "u1"),
-        ("label_id", "u1") # Add label_id as unsigned char
+        ("quality", "u1") # Changed "label_id" to "quality" for MeshLab
     ]
     pcd = np.empty(num_points, dtype=pcd_dtype)
 
     pcd["x"], pcd["y"], pcd["z"] = points.T
     pcd["red"], pcd["green"], pcd["blue"] = colors.T
-    pcd["label_id"] = labels
+    pcd["quality"] = labels # Changed "label_id" to "quality"
 
     vertex_element = PlyElement.describe(pcd, "vertex")
 
