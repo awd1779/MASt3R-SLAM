@@ -27,9 +27,18 @@ class Frame:
     C: Optional[torch.Tensor] = None
     feat: Optional[torch.Tensor] = None
     pos: Optional[torch.Tensor] = None
-    raw_segmentation_mask: Optional[torch.Tensor] = None  # HxW tensor of instance IDs
-    point_labels: Optional[torch.Tensor] = None  # HxW or N_points x 1 tensor of label IDs for X_canon
-    label_map: Optional[dict] = None  # Dict mapping label IDs to string labels {1: "cat", 2: "dog"}
+
+    # Fields for new semantic processing pipeline (SAM2 + CLIP output)
+    local_instance_mask: Optional[torch.Tensor] = None  # HxW tensor of temporary local instance IDs from SAM2 for this frame
+    local_id_to_class_label_map: Optional[dict] = None   # Maps local_instance_mask IDs to CLIP class labels {1:"chair"} for this frame
+
+    # Field for temporally consistent global instance IDs
+    global_instance_ids: Optional[torch.Tensor] = None # HxW or N_points x 1 tensor of persistent global instance IDs for X_canon points
+
+    # label_map (old field, now superseded by local_id_to_class_label_map for per-frame
+    # and g_global_id_to_class_label_map for global IDs) can be removed.
+    # point_labels (old field, now superseded by global_instance_ids) can be removed.
+
     N: int = 0
     N_updates: int = 0
     K: Optional[torch.Tensor] = None
@@ -263,13 +272,14 @@ class SharedStates:
         self.C = torch.zeros(h * w, 1, device=device, dtype=dtype).share_memory_()
         self.feat = torch.zeros(1, self.num_patches, self.feat_dim, device=device, dtype=dtype).share_memory_()
         self.pos = torch.zeros(1, self.num_patches, 2, device=device, dtype=torch.long).share_memory_()
-        # New fields for segmentation data
-        self.raw_segmentation_mask = torch.zeros(h, w, device=device, dtype=torch.int64).share_memory_()
-        self.point_labels = torch.zeros(h * w, 1, device=device, dtype=torch.int64).share_memory_()
-        # label_map (dict) is not directly shareable via share_memory_(). It will be part of the Frame object.
+
+        # Renamed and new fields for semantic data
+        self.local_instance_mask = torch.zeros(h, w, device=device, dtype=torch.int64).share_memory_() # Was raw_segmentation_mask
+        self.global_instance_ids = torch.zeros(h * w, 1, device=device, dtype=torch.int64).share_memory_() # Was point_labels
+        # local_id_to_class_label_map (dict) is not directly shareable via share_memory_(). It will be part of the Frame object.
         # fmt: on
 
-    def set_frame(self, frame):
+    def set_frame(self, frame: Frame): # Added type hint for frame
         with self.lock:
             self.dataset_idx[:] = frame.frame_id
             self.img[:] = frame.img
@@ -285,48 +295,61 @@ class SharedStates:
                 self.feat[:] = frame.feat
             if frame.pos is not None:
                 self.pos[:] = frame.pos
-            if frame.raw_segmentation_mask is not None:
-                # Ensure mask matches expected dimensions, pad or crop if necessary, or assert
-                # For now, assume it's hxw
-                h_mask, w_mask = frame.raw_segmentation_mask.shape
-                h_shared, w_shared = self.raw_segmentation_mask.shape
-                if h_mask == h_shared and w_mask == w_shared:
-                    self.raw_segmentation_mask[:] = frame.raw_segmentation_mask
-                else:
-                    # Handle mismatch: either log a warning, resize, or error
-                    # This could happen if img_downsample changes mask dimensions relative to SharedStates h,w
-                    print(f"[Warning] Mismatch in raw_segmentation_mask dimensions for SharedStates. Expected {h_shared}x{w_shared}, got {h_mask}x{w_mask}. Skipping update for this mask.")
-            if frame.point_labels is not None:
-                self.point_labels[:] = frame.point_labels
-            # frame.label_map is handled by get_frame reconstruction
 
-    def get_frame(self):
+            if frame.local_instance_mask is not None:
+                h_mask, w_mask = frame.local_instance_mask.shape
+                h_shared, w_shared = self.local_instance_mask.shape
+                if h_mask == h_shared and w_mask == w_shared:
+                    self.local_instance_mask[:] = frame.local_instance_mask
+                else:
+                    print(f"[Warning] Mismatch in local_instance_mask dimensions for SharedStates. Expected {h_shared}x{w_shared}, got {h_mask}x{w_mask}. Skipping update for this mask.")
+
+            if frame.global_instance_ids is not None:
+                # Ensure global_instance_ids has the correct flat shape for storage if it's HxWx1 from processing
+                if frame.global_instance_ids.ndim == 3 and frame.global_instance_ids.shape[-1] == 1: # e.g. HxWx1
+                    num_expected_elements = self.global_instance_ids.shape[0] # h*w
+                    if frame.global_instance_ids.numel() == num_expected_elements:
+                         self.global_instance_ids[:] = frame.global_instance_ids.reshape(num_expected_elements, 1)
+                    else:
+                        print(f"[Warning] Mismatch in global_instance_ids number of elements for SharedStates. Expected {num_expected_elements}, got {frame.global_instance_ids.numel()}. Skipping update.")
+                elif frame.global_instance_ids.ndim == 2 and frame.global_instance_ids.shape[-1] == 1: # e.g. (H*W)x1
+                     if frame.global_instance_ids.shape[0] == self.global_instance_ids.shape[0]:
+                        self.global_instance_ids[:] = frame.global_instance_ids
+                     else:
+                        print(f"[Warning] Mismatch in global_instance_ids shape[0] for SharedStates. Expected {self.global_instance_ids.shape[0]}, got {frame.global_instance_ids.shape[0]}. Skipping update.")
+                else:
+                    print(f"[Warning] Unexpected shape for frame.global_instance_ids: {frame.global_instance_ids.shape}. Skipping update.")
+
+
+            # frame.local_id_to_class_label_map is handled by get_frame reconstruction from the passed Frame object
+
+    def get_frame(self) -> Frame: # Added type hint for return
         with self.lock:
-            frame = Frame(
+            # Create the base Frame object
+            reconstructed_frame = Frame(
                 int(self.dataset_idx[0]),
-                self.img.clone(), # Clone to avoid issues if tensor is further processed
+                self.img.clone(),
                 self.img_shape.clone(),
                 self.img_true_shape.clone(),
                 self.uimg.clone(),
                 lietorch.Sim3(self.T_WC.clone()),
             )
-            frame.X_canon = self.X.clone()
-            frame.C = self.C.clone()
-            frame.feat = self.feat.clone()
-            frame.pos = self.pos.clone()
-            # Retrieve segmentation data
-            frame.raw_segmentation_mask = self.raw_segmentation_mask.clone()
-            frame.point_labels = self.point_labels.clone()
-            # frame.label_map will be set if it was part of the original frame object
-            # that was passed to set_frame. If set_frame only got tensors,
-            # then label_map needs to be explicitly managed if it's to be retrieved here.
-            # For now, we assume label_map is part of the Frame object passed around,
-            # and if `set_frame` was called with a Frame that had it, it's implicitly "there".
-            # However, to be safe, it should be explicitly passed if needed after get_frame.
-            # Let's assume it's not directly stored/retrieved from shared memory here,
-            # but rather set on the Frame object instance after it's created by get_frame,
-            # or the original Frame's label_map is passed along by the process managing states.
-            # For simplicity in this step, we'll rely on it being part of the Frame object.
+            # Assign tensor attributes
+            reconstructed_frame.X_canon = self.X.clone()
+            reconstructed_frame.C = self.C.clone()
+            reconstructed_frame.feat = self.feat.clone()
+            reconstructed_frame.pos = self.pos.clone()
+
+            # Retrieve new semantic data
+            reconstructed_frame.local_instance_mask = self.local_instance_mask.clone()
+            reconstructed_frame.global_instance_ids = self.global_instance_ids.clone()
+
+            # local_id_to_class_label_map is NOT stored in shared tensors.
+            # It's assumed that if the original Frame object passed to set_frame() had this attribute,
+            # the caller who gets the reconstructed_frame might want to re-set it if needed,
+            # or it's used ephemerally by the process that calls set_frame.
+            # For now, reconstructed_frame.local_id_to_class_label_map will be None unless set explicitly afterwards.
+            # This is a common pattern: shared memory for tensors, Python dicts travel with object instances if not serialized.
             return frame
 
     def queue_global_optimization(self, idx):
@@ -392,20 +415,16 @@ class SharedKeyframes:
         self.pos = torch.zeros(buffer, 1, self.num_patches, 2, device=device, dtype=torch.long).share_memory_()
         self.is_dirty = torch.zeros(buffer, 1, device=device, dtype=torch.bool).share_memory_()
         self.K = torch.zeros(3, 3, device=device, dtype=dtype).share_memory_()
-        # New fields for segmentation data
-        self.raw_segmentation_mask = torch.zeros(buffer, h, w, device=device, dtype=torch.int64).share_memory_()
-        self.point_labels = torch.zeros(buffer, h * w, 1, device=device, dtype=torch.int64).share_memory_()
-        # label_map (dict) will be stored as a Python list of dicts, managed by the multiprocessing Manager if needed,
-        # or simply as attributes of the Frame objects. For SharedKeyframes, we'll store it as a regular Python list
-        # of dictionaries, assuming it's not performance critical for direct tensor sharing here.
-        # Or, more simply, it's part of the Frame object and not a separate list here.
-        # Let's stick to the principle that label_map is part of the Frame object.
-        # self.label_maps = [{} for _ in range(buffer)] # If we were to store them separately.
+
+        # Renamed and new fields for semantic data
+        self.local_instance_mask = torch.zeros(buffer, h, w, device=device, dtype=torch.int64).share_memory_() # Was raw_segmentation_mask
+        self.global_instance_ids = torch.zeros(buffer, h * w, 1, device=device, dtype=torch.int64).share_memory_() # Was point_labels
+        # local_id_to_class_label_map (dict) is an attribute of the Frame object, not directly in this shared tensor buffer.
         # fmt: on
 
     def __getitem__(self, idx) -> Frame:
         with self.lock:
-            # put all of the data into a frame
+            # Create the base Frame object
             kf = Frame(
                 int(self.dataset_idx[idx]),
                 self.img[idx].clone(),
@@ -414,6 +433,7 @@ class SharedKeyframes:
                 self.uimg[idx].clone(),
                 lietorch.Sim3(self.T_WC[idx].clone()),
             )
+            # Assign tensor attributes
             kf.X_canon = self.X[idx].clone()
             kf.C = self.C[idx].clone()
             kf.feat = self.feat[idx].clone()
@@ -423,15 +443,20 @@ class SharedKeyframes:
             if config["use_calib"]:
                 kf.K = self.K.clone()
 
-            # Retrieve segmentation data
-            kf.raw_segmentation_mask = self.raw_segmentation_mask[idx].clone()
-            kf.point_labels = self.point_labels[idx].clone()
-            # kf.label_map will be set if it was part of the original Frame 'value' in __setitem__
-            # For now, assume Frame object carries its own label_map.
-            # If self.label_maps list was used: kf.label_map = self.label_maps[idx]
+            # Retrieve new semantic data
+            kf.local_instance_mask = self.local_instance_mask[idx].clone()
+            kf.global_instance_ids = self.global_instance_ids[idx].clone()
+
+            # kf.local_id_to_class_label_map is not stored in these shared tensors.
+            # It would have been set on the 'value' Frame object passed to __setitem__.
+            # If the user of __getitem__ needs this dict, they must ensure the Frame object
+            # they originally stored via __setitem__ had it, and it will persist on that instance.
+            # This __getitem__ only reconstructs tensor data into a new Frame.
+            # For true persistence of the dict with the keyframe data here, one might use
+            # manager.list() of dicts, but that's a larger change to this class structure.
             return kf
 
-    def __setitem__(self, idx, value: Frame) -> None:
+    def __setitem__(self, idx, value: Frame) -> None: # value is a Frame object
         with self.lock:
             self.n_size.value = max(idx + 1, self.n_size.value)
 
@@ -453,20 +478,33 @@ class SharedKeyframes:
             self.N[idx] = value.N
             self.N_updates[idx] = value.N_updates
 
-            # Store segmentation data
-            if value.raw_segmentation_mask is not None:
-                h_mask, w_mask = value.raw_segmentation_mask.shape
-                _b_sh, h_sh, w_sh = self.raw_segmentation_mask.shape # Buffer, H, W
+            # Store new semantic data
+            if value.local_instance_mask is not None:
+                h_mask, w_mask = value.local_instance_mask.shape
+                _b_sh, h_sh, w_sh = self.local_instance_mask.shape # Buffer, H, W
                 if h_mask == h_sh and w_mask == w_sh:
-                    self.raw_segmentation_mask[idx] = value.raw_segmentation_mask
+                    self.local_instance_mask[idx] = value.local_instance_mask
                 else:
-                    print(f"[Warning] Mismatch in raw_segmentation_mask dimensions for SharedKeyframes idx {idx}. Expected {h_sh}x{w_sh}, got {h_mask}x{w_mask}. Skipping update for this mask.")
+                    print(f"[Warning] Mismatch in local_instance_mask dimensions for SharedKeyframes idx {idx}. Expected {h_sh}x{w_sh}, got {h_mask}x{w_mask}. Skipping update for this mask.")
 
-            if value.point_labels is not None:
-                self.point_labels[idx] = value.point_labels
+            if value.global_instance_ids is not None:
+                # Ensure global_instance_ids has the correct flat shape for storage
+                if value.global_instance_ids.ndim == 3 and value.global_instance_ids.shape[-1] == 1: # e.g. HxWx1
+                    num_expected_elements = self.global_instance_ids.shape[1] # h*w for this keyframe slot
+                    if value.global_instance_ids.numel() == num_expected_elements:
+                         self.global_instance_ids[idx] = value.global_instance_ids.reshape(num_expected_elements, 1)
+                    else:
+                        print(f"[Warning] Mismatch in global_instance_ids number of elements for SharedKeyframes idx {idx}. Expected {num_expected_elements}, got {value.global_instance_ids.numel()}. Skipping update.")
+                elif value.global_instance_ids.ndim == 2 and value.global_instance_ids.shape[-1] == 1: # e.g. (H*W)x1
+                     if value.global_instance_ids.shape[0] == self.global_instance_ids.shape[1]: # shape[1] is h*w for this slot
+                        self.global_instance_ids[idx] = value.global_instance_ids
+                     else:
+                        print(f"[Warning] Mismatch in global_instance_ids shape[0] for SharedKeyframes idx {idx}. Expected {self.global_instance_ids.shape[1]}, got {value.global_instance_ids.shape[0]}. Skipping update.")
+                else:
+                    print(f"[Warning] Unexpected shape for value.global_instance_ids: {value.global_instance_ids.shape} for SharedKeyframes idx {idx}. Skipping update.")
 
-            # value.label_map is part of the Frame object 'value'.
-            # If self.label_maps list was used: self.label_maps[idx] = value.label_map
+            # value.local_id_to_class_label_map is an attribute of the 'value' (Frame object).
+            # It's not stored in these shared tensors. It persists with the Frame instance itself if that instance is kept.
 
             self.is_dirty[idx] = True
             return idx
