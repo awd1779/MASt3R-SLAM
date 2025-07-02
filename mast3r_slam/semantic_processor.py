@@ -1,36 +1,69 @@
 # mast3r_slam/semantic_processor.py
 """
-Handles per-frame instance segmentation (e.g., SAM2) and classification (e.g., CLIP).
+Handles per-frame instance segmentation (SAM) and classification (OpenCLIP).
 """
 import torch
 import numpy as np
-# import cv2 # If needed for image manipulations like cropping, ensure it's available
+import cv2
+from PIL import Image # For CLIP preprocessing
 
-# --- Placeholder for Actual Models ---
-# You will need to replace these with your actual model loading and inference logic.
-_instance_segmentation_model = None # E.g., your SAM2 model
+# --- Attempt to import SAM specific modules ---
+try:
+    from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
+    SAM_AVAILABLE = True
+except ImportError:
+    SAM_AVAILABLE = False
+    print("[Warning SemanticProcessor] segment_anything library not found. SAM functionalities will not be available.")
+    print("[Warning SemanticProcessor] Please install it via: pip install git+https://github.com/facebookresearch/segment-anything.git")
+
+# --- Attempt to import OpenCLIP specific modules ---
+try:
+    import open_clip
+    OPEN_CLIP_AVAILABLE = True
+except ImportError:
+    OPEN_CLIP_AVAILABLE = False
+    print("[Warning SemanticProcessor] open_clip_torch library not found. CLIP functionalities will not be available.")
+    print("[Warning SemanticProcessor] Please install it via: pip install open_clip_torch")
+
+
+# --- Models and Preprocessors (will be loaded by functions) ---
+_sam_mask_generator = None
 _clip_model = None
 _clip_preprocess = None
-_clip_text_features = {} # Cache for text features
+_clip_text_features_tensor = None
+_clip_text_prompts_cache = [] # To store the prompts for which features were calculated
 
 # --- Configuration ---
-# TODO: User to fill in paths, model types, and text prompts
-INSTANCE_MODEL_CHECKPOINT_PATH = "path/to/your/sam2_checkpoint.pth"
-INSTANCE_MODEL_TYPE = "your_sam2_model_type" # Or other identifier
+# TODO: USER - Update this path to your downloaded SAM checkpoint
+INSTANCE_MODEL_CHECKPOINT_PATH = "checkpoints/sam_vit_b_01ec64.pth"
+INSTANCE_MODEL_TYPE = "vit_b" # "vit_b", "vit_l", "vit_h"
 
-CLIP_MODEL_NAME = "ViT-B/32" # Example CLIP model
+# CLIP Configuration (using OpenCLIP)
+CLIP_MODEL_NAME = 'ViT-bigG-14'
+CLIP_PRETRAINED_DATASET = 'laion2B-39B-b160k' # From your request
+
+# TODO: USER - Define your text prompts for CLIP classification
 TEXT_PROMPTS = [
-    "a photo of a background", # Prompt for background/unclassified
-    "a photo of a chair",
-    "a photo of a desk",
-    "a photo of a table",
-    "a photo of a monitor",
-    "a photo of a person",
-    "a photo of a plant",
-    "a photo of a cup",
-    "a photo of a book",
-    # Add more prompts as needed for your environment
+    "background", # Prompt for background/unclassified (often good to have one)
+    "chair",
+    "desk",
+    "table",
+    "monitor",
+    "person",
+    "plant",
+    "cup",
+    "book",
+    "keyboard",
+    "mouse",
+    "laptop",
+    "screen"
+    # Add more prompts as needed for your environment. Using "a photo of a " prefix is common but not strictly required for all CLIP uses.
+    # OpenCLIP tokenization might handle it well. Test what works best.
 ]
+# Ensure prompts are descriptive enough for good classification.
+# For better matching, you can use templates like "a photo of a {}", "an image of a {}", etc.
+# and then format them: [template.format(obj) for obj in base_objects]
+
 SEMANTIC_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
@@ -38,154 +71,167 @@ def load_instance_segmentation_model(checkpoint_path: str = INSTANCE_MODEL_CHECK
                                      model_type: str = INSTANCE_MODEL_TYPE,
                                      device: str = SEMANTIC_DEVICE):
     """
-    Placeholder: Loads the instance segmentation model (e.g., SAM2).
-    User needs to implement this with their chosen model.
+    Loads the SAM model and prepares the automatic mask generator.
     """
-    global _instance_segmentation_model
-    if _instance_segmentation_model is not None:
-        print("[INFO SemanticProcessor] Instance segmentation model already loaded.")
-        return _instance_segmentation_model
+    global _sam_mask_generator, SAM_AVAILABLE
 
-    print(f"[INFO SemanticProcessor] Placeholder: Loading instance segmentation model '{model_type}' from '{checkpoint_path}' to '{device}'.")
-    # --- USER IMPLEMENTATION REQUIRED ---
-    # Example (conceptual, replace with actual SAM2/etc. loading):
-    # from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
-    # _instance_segmentation_model = sam_model_registry[model_type](checkpoint=checkpoint_path)
-    # _instance_segmentation_model.to(device=device)
-    # _instance_segmentation_model.eval()
-    # Or, if using SamAutomaticMaskGenerator, store that:
-    # sam = sam_model_registry...
-    # _instance_segmentation_model = SamAutomaticMaskGenerator(sam, points_per_side=16, pred_iou_thresh=0.9, stability_score_thresh=0.9)
-    _instance_segmentation_model = "SAM2_MODEL_LOADED_PLACEHOLDER" # Replace this
-    # --- END USER IMPLEMENTATION ---
-    if _instance_segmentation_model is None:
-        raise RuntimeError(f"Failed to load instance segmentation model from {checkpoint_path}")
-    print(f"[INFO SemanticProcessor] Instance segmentation model loaded.")
-    return _instance_segmentation_model
+    if not SAM_AVAILABLE:
+        raise ImportError("segment_anything library is required for instance segmentation.")
+
+    if _sam_mask_generator is not None:
+        # print("[INFO SemanticProcessor] SAM Automatic Mask Generator already loaded.")
+        return _sam_mask_generator
+
+    try:
+        print(f"[INFO SemanticProcessor] Loading SAM model: type='{model_type}' from checkpoint='{checkpoint_path}' to device='{device}'")
+        sam_model = sam_model_registry[model_type](checkpoint=checkpoint_path)
+        sam_model.to(device=device)
+        sam_model.eval()
+
+        _sam_mask_generator = SamAutomaticMaskGenerator(
+            model=sam_model,
+            points_per_side=16, # Fewer points for potentially faster processing, coarser masks
+            pred_iou_thresh=0.86,
+            stability_score_thresh=0.92,
+            min_mask_region_area=150, # Filter out very small regions
+        )
+        print(f"[INFO SemanticProcessor] SAM model and SamAutomaticMaskGenerator loaded (points_per_side=16, min_area=150).")
+    except FileNotFoundError:
+        print(f"[ERROR SemanticProcessor] SAM Checkpoint file not found at: {checkpoint_path}")
+        print(f"[ERROR SemanticProcessor] Please download a SAM checkpoint and update INSTANCE_MODEL_CHECKPOINT_PATH.")
+        _sam_mask_generator = None
+        raise
+    except Exception as e:
+        print(f"[ERROR SemanticProcessor] Failed to load SAM model or initialize generator: {e}")
+        _sam_mask_generator = None
+        raise e
+
+    return _sam_mask_generator
 
 
 def load_clip_model(model_name: str = CLIP_MODEL_NAME,
+                    pretrained_dataset: str = CLIP_PRETRAINED_DATASET,
                     text_prompts: list = None,
                     device: str = SEMANTIC_DEVICE):
     """
-    Placeholder: Loads the CLIP model and pre-calculates text features.
-    User needs to implement this.
+    Loads the OpenCLIP model, preprocessor and pre-calculates text features.
+    Downloads model from Hugging Face if not cached.
     """
-    global _clip_model, _clip_preprocess, _clip_text_features, TEXT_PROMPTS
-    if _clip_model is not None and _clip_text_features:
-        print("[INFO SemanticProcessor] CLIP model and text features already loaded.")
-        return _clip_model, _clip_preprocess, _clip_text_features
+    global _clip_model, _clip_preprocess, _clip_text_features_tensor, _clip_text_prompts_cache, OPEN_CLIP_AVAILABLE, TEXT_PROMPTS
 
-    if text_prompts is None:
-        text_prompts = TEXT_PROMPTS
+    if not OPEN_CLIP_AVAILABLE:
+        raise ImportError("open_clip_torch library is required for CLIP classification.")
 
-    print(f"[INFO SemanticProcessor] Placeholder: Loading CLIP model '{model_name}' to '{device}'.")
-    # --- USER IMPLEMENTATION REQUIRED ---
-    # Example (conceptual, replace with actual CLIP loading):
-    # import clip
-    # _clip_model, _clip_preprocess = clip.load(model_name, device=device)
-    # _clip_model.eval()
-    #
-    # # Pre-calculate text features
-    # with torch.no_grad():
-    #     text_inputs = clip.tokenize(text_prompts).to(device)
-    #     _clip_text_features_tensor = _clip_model.encode_text(text_inputs)
-    #     _clip_text_features_tensor /= _clip_text_features_tensor.norm(dim=-1, keepdim=True)
-    # # Store features in a dictionary for easy lookup by prompt
-    # for i, prompt in enumerate(text_prompts):
-    #      _clip_text_features[prompt] = _clip_text_features_tensor[i]
-    _clip_model = "CLIP_MODEL_LOADED_PLACEHOLDER" # Replace
-    _clip_preprocess = "CLIP_PREPROCESS_PLACEHOLDER" # Replace
-    for i, prompt in enumerate(text_prompts): # Simulate feature creation
-         _clip_text_features[prompt] = torch.randn(512, device=device) # Assuming 512-dim CLIP features
-    # --- END USER IMPLEMENTATION ---
-    if _clip_model is None or not _clip_text_features:
-        raise RuntimeError(f"Failed to load CLIP model or process text prompts.")
-    print(f"[INFO SemanticProcessor] CLIP model and text features for {len(text_prompts)} prompts loaded.")
-    return _clip_model, _clip_preprocess, _clip_text_features
+    current_prompts = text_prompts if text_prompts is not None else TEXT_PROMPTS
+    prompts_are_cached = (_clip_model is not None and
+                          _clip_preprocess is not None and
+                          _clip_text_features_tensor is not None and
+                          _clip_text_prompts_cache == current_prompts)
+
+    if prompts_are_cached:
+        # print("[INFO SemanticProcessor] OpenCLIP model and text features already loaded and cached.")
+        return _clip_model, _clip_preprocess, _clip_text_features_tensor, _clip_text_prompts_cache
+
+    try:
+        print(f"[INFO SemanticProcessor] Loading OpenCLIP model: '{model_name}' with weights '{pretrained_dataset}' to '{device}'.")
+        # OpenCLIP's create_model_and_transforms handles download from Hugging Face
+        _clip_model, _, _clip_preprocess = open_clip.create_model_and_transforms(
+            model_name,
+            pretrained=pretrained_dataset,
+            device=device
+        )
+        _clip_model.eval()
+
+        print(f"[INFO SemanticProcessor] Tokenizing {len(current_prompts)} text prompts for OpenCLIP...")
+        # Tokenize text prompts
+        text_tokens = open_clip.tokenize(current_prompts).to(device)
+
+        # Pre-calculate text features
+        with torch.no_grad():
+            _clip_text_features_tensor = _clip_model.encode_text(text_tokens)
+            _clip_text_features_tensor /= _clip_text_features_tensor.norm(dim=-1, keepdim=True)
+
+        _clip_text_prompts_cache = list(current_prompts) # Cache the prompts these features correspond to
+
+        print(f"[INFO SemanticProcessor] OpenCLIP model and text features loaded successfully.")
+    except Exception as e:
+        print(f"[ERROR SemanticProcessor] Failed to load OpenCLIP model or process text prompts: {e}")
+        _clip_model = None
+        _clip_preprocess = None
+        _clip_text_features_tensor = None
+        _clip_text_prompts_cache = []
+        raise e
+
+    return _clip_model, _clip_preprocess, _clip_text_features_tensor, _clip_text_prompts_cache
 
 
 def get_image_crop_from_mask(image_chw_0_1_rgb: torch.Tensor, binary_mask_hw: torch.Tensor):
     """
-    Placeholder: Extracts a cropped image region based on a binary mask.
-    User should implement a robust version, possibly padding the crop, handling non-rectangular masks, etc.
-    This version will use the bounding box of the mask.
+    Extracts a cropped image region based on the bounding box of a binary mask.
+    Converts to PIL Image as CLIP preprocess often expects it.
 
     Args:
         image_chw_0_1_rgb (torch.Tensor): Original image (C, H, W), RGB, 0-1 range.
         binary_mask_hw (torch.Tensor): Binary mask (H, W) for the segment.
 
     Returns:
-        torch.Tensor: Cropped image region (C, H_crop, W_crop), or None if mask is empty.
+        PIL.Image: Cropped image region as a PIL Image, or None if mask is empty/invalid.
     """
     if not binary_mask_hw.any():
         return None
 
-    # --- USER IMPLEMENTATION REQUIRED (or use this simple version) ---
-    # Get bounding box coordinates from the mask
     rows = torch.any(binary_mask_hw, axis=1)
     cols = torch.any(binary_mask_hw, axis=0)
-    if not rows.any() or not cols.any(): # Should not happen if binary_mask_hw.any() is true
+    if not rows.any() or not cols.any():
         return None
 
     ymin, ymax = torch.where(rows)[0][[0, -1]]
     xmin, xmax = torch.where(cols)[0][[0, -1]]
 
-    # Ensure xmax and ymax are inclusive for slicing
-    # Add a small padding if desired, e.g., pad = 5
-    # ymin = max(0, ymin - pad) ... xmax = min(W-1, xmax + pad)
+    # Crop the original image tensor (CHW)
+    cropped_tensor = image_chw_0_1_rgb[:, ymin:ymax+1, xmin:xmax+1]
 
-    # Crop the original image tensor
-    # Input is CHW, so slice H and W dimensions
-    cropped_image = image_chw_0_1_rgb[:, ymin:ymax+1, xmin:xmax+1]
-    # --- END USER IMPLEMENTATION ---
-    return cropped_image
+    if cropped_tensor.numel() == 0 or cropped_tensor.shape[1] == 0 or cropped_tensor.shape[2] == 0:
+        return None
+
+    # Convert to HWC, then to NumPy uint8, then to PIL Image
+    cropped_np_hwc_uint8 = (cropped_tensor.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8)
+    pil_image = Image.fromarray(cropped_np_hwc_uint8)
+
+    return pil_image
 
 
-def classify_crop_with_clip(image_crop_chw_0_1_rgb: torch.Tensor,
-                            clip_model, clip_preprocess, text_features_dict,
+def classify_crop_with_clip(pil_image_crop: Image.Image,
+                            clip_model, clip_preprocess,
+                            text_features_tensor: torch.Tensor,
+                            text_prompts_list: list,
                             device: str = SEMANTIC_DEVICE):
     """
-    Placeholder: Classifies an image crop using CLIP against pre-calculated text features.
-    User needs to implement this.
-
-    Args:
-        image_crop_chw_0_1_rgb (torch.Tensor): The cropped image region.
-        clip_model: Loaded CLIP model.
-        clip_preprocess: CLIP image preprocessor.
-        text_features_dict (dict): Dict of {prompt_string: text_feature_tensor}.
-        device (str): Device to run on.
-
-    Returns:
-        str: The class label (text prompt) with the highest similarity.
+    Classifies a PIL image crop using OpenCLIP against pre-calculated text features.
     """
-    if image_crop_chw_0_1_rgb is None or image_crop_chw_0_1_rgb.numel() == 0:
-        return TEXT_PROMPTS[0] # Default to background or first prompt
+    if pil_image_crop is None:
+        return text_prompts_list[0] if text_prompts_list else "unknown" # Default to first prompt or "unknown"
 
-    # --- USER IMPLEMENTATION REQUIRED ---
-    # Example (conceptual):
-    # from PIL import Image # CLIP often works with PIL images for preprocessing
-    # # Convert tensor to PIL Image (assuming CHW, 0-1 RGB)
-    # pil_image = Image.fromarray((image_crop_chw_0_1_rgb.permute(1, 2, 0).cpu().numpy() * 255).astype(np.uint8))
-    # image_input = clip_preprocess(pil_image).unsqueeze(0).to(device)
-    #
-    # text_prompts_list = list(text_features_dict.keys())
-    # text_features_tensor = torch.stack(list(text_features_dict.values())).to(device)
-    #
-    # with torch.no_grad():
-    #     image_features = clip_model.encode_image(image_input)
-    #     image_features /= image_features.norm(dim=-1, keepdim=True)
-    #
-    #     similarity = (100.0 * image_features @ text_features_tensor.T).softmax(dim=-1)
-    #     best_score, best_idx = similarity[0].max(dim=0)
-    #     class_label = text_prompts_list[best_idx.item()]
-    #
-    # # A simple placeholder: randomly pick a label from the prompts (excluding first "background")
-    if len(TEXT_PROMPTS) > 1:
-        class_label = np.random.choice(TEXT_PROMPTS[1:])
-    else:
-        class_label = TEXT_PROMPTS[0]
-    # --- END USER IMPLEMENTATION ---
+    try:
+        image_input = clip_preprocess(pil_image_crop).unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            image_features = clip_model.encode_image(image_input)
+            image_features /= image_features.norm(dim=-1, keepdim=True)
+
+            # Calculate similarity
+            #logit_scale = clip_model.logit_scale.exp() # Some OpenCLIP models might not have this directly accessible this way for all versions
+            # For zero-shot, often use raw cosine similarity scaled by 100 as logits
+            similarity = (100.0 * image_features @ text_features_tensor.T) # .softmax(dim=-1) # Softmax if you want probabilities
+
+        best_score, best_idx = similarity[0].max(dim=0)
+        class_label = text_prompts_list[best_idx.item()]
+        # print(f"  CLIP Scores: {similarity[0].cpu().numpy().round(2)}, Best: {class_label} ({best_score.item():.2f})")
+
+    except Exception as e:
+        print(f"[ERROR SemanticProcessor] CLIP classification failed for a crop: {e}")
+        class_label = text_prompts_list[0] if text_prompts_list else "classification_failed" # Fallback
+
     return class_label
 
 
@@ -193,138 +239,160 @@ def process_frame_for_semantics(image_tensor_chw_0_1_rgb: torch.Tensor,
                                 text_prompts_for_clip: list = None):
     """
     Main processing function for a single frame.
-    1. Runs instance segmentation (e.g., SAM2) to get local instance masks.
+    1. Runs instance segmentation (SAM) to get local instance masks.
     2. For each instance mask, crops the region and classifies it using CLIP.
-
-    Args:
-        image_tensor_chw_0_1_rgb (torch.Tensor): Input image (C, H, W), RGB, 0-1 range.
-        text_prompts_for_clip (list, optional): List of text prompts for CLIP classification.
-                                                Defaults to global TEXT_PROMPTS.
-
-    Returns:
-        tuple: (local_instance_mask, local_id_to_class_label_map)
-            - local_instance_mask (torch.Tensor): HxW tensor of temporary integer instance IDs.
-                                                  0 is typically background/unassigned.
-            - local_id_to_class_label_map (dict): e.g., {1: "chair", 2: "desk"}
     """
     if text_prompts_for_clip is None:
-        text_prompts_for_clip = TEXT_PROMPTS
+        text_prompts_for_clip = TEXT_PROMPTS # Use global default if none provided
 
-    # 1. Load models (idempotent, will only load once)
-    # Ensure correct device is used if not already handled by model loaders
-    seg_model = load_instance_segmentation_model(device=SEMANTIC_DEVICE)
-    clip_model, clip_preprocess, text_features_dict = load_clip_model(text_prompts=text_prompts_for_clip, device=SEMANTIC_DEVICE)
+    # 1. Load models (idempotent)
+    sam_generator = load_instance_segmentation_model(device=SEMANTIC_DEVICE)
+    clip_model, clip_preprocess, text_features, text_prompts_list_cache = load_clip_model(
+        text_prompts=text_prompts_for_clip, device=SEMANTIC_DEVICE
+    )
+    # Ensure the prompts used for text_features match the current text_prompts_for_clip
+    # This is important if text_prompts_for_clip can change dynamically per call
+    if text_prompts_list_cache != text_prompts_for_clip:
+        print("[Warning SemanticProcessor] Text prompts changed; re-encoding text features for CLIP.")
+        clip_model, clip_preprocess, text_features, text_prompts_list_cache = load_clip_model(
+             text_prompts=text_prompts_for_clip, device=SEMANTIC_DEVICE, force_reload_prompts=True # Add a way to force reload prompts if API changes
+        )
+
 
     _c, h, w = image_tensor_chw_0_1_rgb.shape
 
-    # 2. Run Instance Segmentation (Placeholder: SAM-like automatic mask generation)
-    # --- USER IMPLEMENTATION REQUIRED for actual SAM2 call ---
-    # This should produce a list of masks, similar to SAM's SamAutomaticMaskGenerator output
-    # For placeholder, reusing parts of the previous SAM util structure:
-    # masks_data_list = seg_model.generate(image_hwc_uint8_for_sam) # Conceptual
+    # 2. Run Instance Segmentation (SAM)
+    # SAM expects HWC uint8 numpy image
+    image_hwc_uint8_rgb = (image_tensor_chw_0_1_rgb.permute(1, 2, 0) * 255.0).byte().cpu().numpy()
 
-    # Placeholder segmentation: Creates a few dummy rectangular segments
-    print(f"[INFO SemanticProcessor] Placeholder: Generating dummy instance masks for image {h}x{w}.")
-    # This part needs to be replaced by your actual SAM2 (or other instance seg model) output
-    # The output should be a single HxW tensor where each pixel has a local instance ID (1, 2, 3...)
-    # and 0 for background.
+    # print(f"[INFO SemanticProcessor] Running SAM on image {h}x{w}...")
+    sam_masks_data_list = sam_generator.generate(image_hwc_uint8_rgb)
+
     local_instance_mask = torch.zeros((h,w), dtype=torch.int64, device=SEMANTIC_DEVICE)
-    current_local_id = 1
-    # Dummy segment 1 (e.g. central object)
-    if h > 10 and w > 10: # Basic check
-        local_instance_mask[h//3:2*h//3, w//4:3*w//4] = current_local_id
-        current_local_id +=1
-    # Dummy segment 2 (e.g. side object)
-    if h > 20 and w > 20: # Basic check
-         local_instance_mask[h//2:5*h//6, w//8:w//4] = current_local_id
-         current_local_id +=1
-    # --- END USER IMPLEMENTATION for actual SAM2 call ---
+    local_id_to_class_label_map = {0: text_prompts_for_clip[0] if text_prompts_for_clip else "background"} # Default for background
 
-    # 3. Classify each segment with CLIP
-    local_id_to_class_label_map = {}
-    unique_local_ids = torch.unique(local_instance_mask)
+    if not sam_masks_data_list:
+        print(f"[INFO SemanticProcessor] SAM found no masks for frame.")
+        return local_instance_mask, local_id_to_class_label_map
 
-    print(f"[INFO SemanticProcessor] Found {len(unique_local_ids)-1} unique local segments (excluding 0).")
+    # Sort by area, largest first, to give them priority in ID assignment if they overlap
+    sam_masks_data_list = sorted(sam_masks_data_list, key=lambda x: x['area'], reverse=True)
 
-    for local_id_tensor in unique_local_ids:
-        local_id = local_id_tensor.item()
-        if local_id == 0: # Skip background if 0 is used for it
-            if TEXT_PROMPTS[0] not in local_id_to_class_label_map.values() and local_id not in local_id_to_class_label_map : # ensure background is mapped if not already
-                 local_id_to_class_label_map[local_id] = TEXT_PROMPTS[0] # "a photo of a background"
-            continue
+    current_local_id = 1 # Start actual object IDs from 1
+    # print(f"[INFO SemanticProcessor] SAM generated {len(sam_masks_data_list)} raw masks.")
 
-        binary_mask_for_id = (local_instance_mask == local_id)
-        image_crop = get_image_crop_from_mask(image_tensor_chw_0_1_rgb, binary_mask_for_id)
+    for mask_data in sam_masks_data_list:
+        segment_bool_np = mask_data['segmentation'] # This is HxW boolean NumPy array
+        segment_torch = torch.from_numpy(segment_bool_np).to(device=SEMANTIC_DEVICE)
 
-        if image_crop is not None and image_crop.numel() > 0 :
-            class_label = classify_crop_with_clip(image_crop, clip_model, clip_preprocess, text_features_dict, device=SEMANTIC_DEVICE)
-            local_id_to_class_label_map[local_id] = class_label
-            # print(f"[INFO SemanticProcessor] Local ID {local_id} classified as: {class_label}")
-        else:
-            # If crop is empty or invalid, assign a default label (e.g. background)
-            local_id_to_class_label_map[local_id] = TEXT_PROMPTS[0]
+        # Assign current_local_id to pixels where segment is true AND local_instance_mask is still 0 (background)
+        # This gives priority to larger masks (due to sorting) in overlapping regions.
+        valid_pixels_for_current_id = segment_torch & (local_instance_mask == 0)
 
+        if valid_pixels_for_current_id.any():
+            local_instance_mask[valid_pixels_for_current_id] = current_local_id
 
-    print(f"[INFO SemanticProcessor] Frame processing complete. Mask shape: {local_instance_mask.shape}, Label map: {local_id_to_class_label_map}")
+            # 3. Classify this segment with CLIP
+            pil_crop = get_image_crop_from_mask(image_tensor_chw_0_1_rgb, segment_torch) # Pass the original image and the binary mask for this ID
+
+            class_label = "unknown" # Default if crop is bad or classification fails
+            if pil_crop:
+                class_label = classify_crop_with_clip(pil_crop, clip_model, clip_preprocess,
+                                                      text_features, text_prompts_list_cache, # Use cached prompts that match features
+                                                      device=SEMANTIC_DEVICE)
+
+            local_id_to_class_label_map[current_local_id] = class_label
+            # print(f"  Local ID {current_local_id} (Area: {mask_data['area']}) -> CLIP: {class_label}")
+
+            current_local_id += 1
+            if current_local_id > 255: # Safety for uchar if that's a constraint downstream
+                # print("[Warning SemanticProcessor] Reached local_id 255. Further distinct segments won't get new IDs if uchar is limit.")
+                break
+
+    # print(f"[INFO SemanticProcessor] Frame processing complete. Final local mask unique IDs: {torch.unique(local_instance_mask)}. Label map size: {len(local_id_to_class_label_map)}")
     return local_instance_mask, local_id_to_class_label_map
 
 
 if __name__ == '__main__':
-    print("Testing Semantic Processor...")
-    # This test assumes you have downloaded CLIP weights and potentially an instance model checkpoint
-    # and updated the placeholder paths/names at the top of this file.
+    print("Testing Semantic Processor with SAM and OpenCLIP...")
+    if not SAM_AVAILABLE or not OPEN_CLIP_AVAILABLE:
+        print("Required libraries (segment_anything or open_clip_torch) are not installed. Test cannot run.")
+    else:
+        print(f"Attempting to use device: {SEMANTIC_DEVICE}")
+        print(f"SAM Checkpoint: {INSTANCE_MODEL_CHECKPOINT_PATH} (Type: {INSTANCE_MODEL_TYPE})")
+        print(f"OpenCLIP Model: {CLIP_MODEL_NAME} (Dataset: {CLIP_PRETRAINED_DATASET})")
+        print(f"Default Text Prompts: {TEXT_PROMPTS}")
 
-    # Create a dummy image (C, H, W), RGB, 0-1 range
-    dummy_h, dummy_w = 240, 320
-    # Simple pattern: red square, green circle on blue background
-    img_np = np.zeros((dummy_h, dummy_w, 3), dtype=np.uint8)
-    img_np[:,:,2] = 150 # Blue background
-    cv2.rectangle(img_np, (dummy_w//4, dummy_h//4), (dummy_w//2, dummy_h//2), (200,0,0), -1) # Red square (BGR for cv2)
-    cv2.circle(img_np, (3*dummy_w//4, 3*dummy_h//4), dummy_h//5, (0,200,0), -1) # Green circle (BGR for cv2)
+        try:
+            # Create a dummy image (C, H, W), RGB, 0-1 range
+            dummy_h, dummy_w = 240, 320
+            img_np = np.zeros((dummy_h, dummy_w, 3), dtype=np.uint8)
+            # Make a BGR image with OpenCV, then convert
+            cv2.rectangle(img_np, (dummy_w//4, dummy_h//4), (dummy_w//2, dummy_h//2), (0,0,200), -1) # Red BGR
+            cv2.circle(img_np, (3*dummy_w//4, 3*dummy_h//4), dummy_h//5, (0,200,0), -1)     # Green BGR
+            img_np[0:dummy_h//3, dummy_w//2:dummy_w, 2] = 200 # Blue BGR strip
 
-    img_rgb_np_float = cv2.cvtColor(img_np, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
-    img_tensor = torch.from_numpy(img_rgb_np_float).permute(2,0,1).to(SEMANTIC_DEVICE)
+            img_rgb_np_float = cv2.cvtColor(img_np, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+            img_tensor = torch.from_numpy(img_rgb_np_float).permute(2,0,1).to(SEMANTIC_DEVICE)
 
-    # Define some text prompts for CLIP
-    prompts = [
-        "a photo of a background",
-        "a photo of a red square",
-        "a photo of a green circle",
-        "a photo of something blue"
-    ]
-    # Update global TEXT_PROMPTS if you want this test to use these specific ones by default
-    # Or pass them directly:
-    # local_mask, id_to_label = process_frame_for_semantics(img_tensor, text_prompts_for_clip=prompts)
+            print("\nRunning process_frame_for_semantics...")
+            # TEXT_PROMPTS will be used by default from the global scope of the module
+            # You can override by: text_prompts_for_clip=["a photo of red", "a photo of green", "a photo of blue", "other"]
+            local_mask, id_to_label = process_frame_for_semantics(img_tensor)
 
-    # For the test, let's ensure the global TEXT_PROMPTS are set for the dummy classification logic
-    TEXT_PROMPTS[:] = prompts # Modify global list for this test run
+            print("\n--- Test Results ---")
+            print("Local Instance Mask shape:", local_mask.shape)
+            print("Local Instance Mask unique IDs:", torch.unique(local_mask).cpu().tolist())
+            print("Local ID to Class Label Map:", id_to_label)
 
-    try:
-        local_mask, id_to_label = process_frame_for_semantics(img_tensor) # Uses global TEXT_PROMPTS
+            if not id_to_label or (len(id_to_label) == 1 and 0 in id_to_label):
+                 print("WARNING: id_to_label map is empty or only contains background! SAM might not have found segments or CLIP failed.")
+            if local_mask.shape != (dummy_h, dummy_w):
+                print(f"ERROR: Mask shape {local_mask.shape} does not match image shape {(dummy_h, dummy_w)}")
 
-        print("\n--- Test Results ---")
-        print("Local Instance Mask unique IDs:", torch.unique(local_mask))
-        print("Local ID to Class Label Map:", id_to_label)
+            # Visualize (optional, requires matplotlib)
+            try:
+                import matplotlib.pyplot as plt
+                print("Attempting to visualize test output using Matplotlib...")
+                plt.figure(figsize=(12, 6))
+                plt.subplot(1, 2, 1)
+                plt.imshow(img_rgb_np_float)
+                plt.title("Original Test Image (RGB)")
+                plt.axis('off')
 
-        # Basic check:
-        if not id_to_label:
-            print("ERROR: id_to_label map is empty!")
-        if local_mask.shape != (dummy_h, dummy_w):
-            print(f"ERROR: Mask shape {local_mask.shape} does not match image shape {(dummy_h, dummy_w)}")
+                colored_seg_mask_vis = np.zeros((dummy_h, dummy_w, 3), dtype=np.uint8)
+                unique_ids_in_mask = torch.unique(local_mask).cpu().numpy()
 
-        # Further visualization could be added here using matplotlib if desired
-        # (similar to the previous SAM test script)
-        print("\nSemantic Processor test finished.")
+                # Create a color for each unique ID present in the actual data
+                np.random.seed(0)
+                viz_colors = {uid: np.random.randint(80, 220, size=3) for uid in unique_ids_in_mask if uid !=0}
+                viz_colors[0] = [128,128,128] # Grey for background
 
-    except ImportError as e:
-        print(f"ImportError during test: {e}. Make sure required libraries (e.g., CLIP, SAM2) are installed.")
-    except RuntimeError as e:
-        print(f"RuntimeError during test: {e}. This often means model checkpoints are missing or paths are incorrect.")
-    except FileNotFoundError as e:
-        print(f"FileNotFoundError during test: {e}. Check your model checkpoint paths.")
-    except Exception as e:
-        print(f"An unexpected error occurred during test: {e}")
-        import traceback
-        traceback.print_exc()
+                for uid_val in unique_ids_in_mask:
+                    color_to_use = viz_colors.get(uid_val, [20,20,20]) # Default dark if ID somehow not in map
+                    colored_seg_mask_vis[local_mask.cpu().numpy() == uid_val] = color_to_use
 
+                plt.subplot(1, 2, 2)
+                plt.imshow(colored_seg_mask_vis)
+                clip_labels_display = "\n".join([f"{k}: {v}" for k,v in id_to_label.items()])
+                plt.title(f"SAM Segments + CLIP Labels\n{clip_labels_display}", fontsize=8)
+                plt.axis('off')
+
+                output_filename = "semantic_processor_test_output.png"
+                plt.savefig(output_filename)
+                print(f"Saved semantic_processor test output visualization to {output_filename}")
+            except ImportError:
+                print("Matplotlib not installed, skipping visualization of test output.")
+            except Exception as e_vis:
+                print(f"Error during test visualization: {e_vis}")
+
+        except FileNotFoundError as e:
+            print(f"[CRITICAL ERROR in __main__] A model checkpoint file was not found: {e}. Please check INSTANCE_MODEL_CHECKPOINT_PATH in semantic_processor.py.")
+        except ImportError as e:
+             print(f"[CRITICAL ERROR in __main__] A required library (segment_anything or open_clip_torch) is not installed or there was an import error: {e}")
+        except Exception as e:
+            print(f"An unexpected error occurred during test: {e}")
+            import traceback
+            traceback.print_exc()
+        print("\nSemantic Processor __main__ test complete.")
 ```
