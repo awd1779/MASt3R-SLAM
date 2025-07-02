@@ -13,11 +13,18 @@ from mast3r_slam.mast3r_utils import mast3r_match_asymmetric
 
 
 class FrameTracker:
-    def __init__(self, model, frames, device):
+    def __init__(self, model, frames, device, initial_global_id_to_class_label_map: dict):
         self.cfg = config["tracking"]
         self.model = model
-        self.keyframes = frames
+        self.keyframes = frames # This is a SharedKeyframes instance
         self.device = device
+
+        # For managing global instance IDs and their semantic labels
+        self.g_next_global_id = 1  # Start global IDs from 1 (0 is background)
+        self.g_global_id_to_class_label_map = initial_global_id_to_class_label_map
+        # Ensure background is in the map if not already passed (though main.py should handle it)
+        if 0 not in self.g_global_id_to_class_label_map:
+            self.g_global_id_to_class_label_map[0] = "background"
 
         self.reset_idx_f2k()
 
@@ -41,10 +48,110 @@ class FrameTracker:
         Qk = torch.sqrt(Qff[idx_f2k] * Qkf)
 
         # Update keyframe pointmap after registration (need pose)
+        # This populates frame.X_canon and frame.C
         frame.update_pointmap(Xff, Cff)
 
+        # Initialize global_instance_ids for the current frame
+        # It should have the same number of elements as X_canon points.
+        num_points_current_frame = frame.X_canon.shape[0]
+        frame.global_instance_ids = torch.zeros(num_points_current_frame, 1, dtype=torch.int64, device=self.device)
+
+        # --- Start: 3D Instance Association Logic ---
+        # This logic runs if we have a valid keyframe to track against and we have its global_instance_ids
+        if keyframe is not None and keyframe.global_instance_ids is not None and \
+           frame.local_instance_mask is not None and frame.local_id_to_class_label_map is not None:
+
+            # Ensure keyframe.global_instance_ids is flat for easier indexing if it's not already
+            # and has the correct number of elements corresponding to keyframe's points (Xkf.shape[0])
+            # Xkf was used to get idx_f2k.
+            num_points_keyframe = Xkf.shape[0] # Xkf has shape (N_kf_pts, 3)
+
+            if keyframe.global_instance_ids.numel() != num_points_keyframe:
+                print(f"[Tracker WARN] Keyframe {keyframe.frame_id} global_instance_ids numel ({keyframe.global_instance_ids.numel()}) "
+                      f"does not match its point count ({num_points_keyframe}). Skipping global ID propagation.")
+            else:
+                keyframe_global_ids_flat = keyframe.global_instance_ids.view(-1)
+
+                # Flatten current frame's local SAM mask to align with point indices
+                # frame.local_instance_mask is HxW.
+                # Assuming Xff (and thus frame.X_canon) points correspond row-major to HxW.
+                current_frame_local_sam_ids_flat = frame.local_instance_mask.view(-1)
+
+                if current_frame_local_sam_ids_flat.numel() != num_points_current_frame:
+                    print(f"[Tracker WARN] Current frame {frame.frame_id} local_instance_mask numel ({current_frame_local_sam_ids_flat.numel()}) "
+                          f"does not match its point count ({num_points_current_frame}). Skipping global ID propagation.")
+                else:
+                    local_id_to_global_id_candidates = {}
+
+                    # Iterate through current frame points that have a valid match in the keyframe
+                    # idx_f2k[i] gives the index of the point in keyframe that matches point i in current_frame
+                    # valid_match_k[i] would indicate if point i in keyframe has a valid match (not directly used here, idx_f2k implies match)
+                    # We need to iterate based on current_frame's point indices 0 to N-1
+                    for p_curr_idx in range(num_points_current_frame):
+                        p_kf_idx = idx_f2k[p_curr_idx].item() # Get the flat index into keyframe points
+
+                        # Check if this match is valid (e.g., sometimes idx_f2k might have placeholder for no match,
+                        # or p_kf_idx might be out of bounds if not careful. mast3r_match_asymmetric should give valid indices)
+                        # A simple validity check for p_kf_idx:
+                        if 0 <= p_kf_idx < num_points_keyframe:
+                            prev_global_id = keyframe_global_ids_flat[p_kf_idx].item()
+                            current_local_sam_id = current_frame_local_sam_ids_flat[p_curr_idx].item()
+
+                            if current_local_sam_id != 0 and prev_global_id != 0: # Not background, and matched to a known global object
+                                if current_local_sam_id not in local_id_to_global_id_candidates:
+                                    local_id_to_global_id_candidates[current_local_sam_id] = []
+                                local_id_to_global_id_candidates[current_local_sam_id].append(prev_global_id)
+
+                    # Resolve and Propagate Global IDs for Matched Segments
+                    for local_id, candidate_global_ids_list in local_id_to_global_id_candidates.items():
+                        if candidate_global_ids_list:
+                            # Resolve: Pick the most frequent global ID (majority vote)
+                            chosen_global_id = Counter(candidate_global_ids_list).most_common(1)[0][0]
+                            # Assign this chosen_global_id to all points in current_frame with this local_id
+                            frame.global_instance_ids.view(-1)[current_frame_local_sam_ids_flat == local_id] = chosen_global_id
+
+            # Assign New Global IDs for Unmatched New Segments in current_frame
+            unique_local_ids_in_current_frame = torch.unique(current_frame_local_sam_ids_flat)
+            for local_id_val_tensor in unique_local_ids_in_current_frame:
+                local_id_val = local_id_val_tensor.item()
+                if local_id_val == 0: # Skip background SAM label
+                    continue
+
+                # Check if this local_id_val segment in current_frame still has unassigned global_instance_ids (i.e., all are 0)
+                # This means it wasn't propagated from a keyframe match.
+                current_segment_mask_flat = (current_frame_local_sam_ids_flat == local_id_val)
+                if (frame.global_instance_ids.view(-1)[current_segment_mask_flat] == 0).all():
+                    new_global_id = self.g_next_global_id
+                    frame.global_instance_ids.view(-1)[current_segment_mask_flat] = new_global_id
+
+                    class_name = frame.local_id_to_class_label_map.get(local_id_val, f"unknown_local_id_{local_id_val}")
+                    self.g_global_id_to_class_label_map[new_global_id] = class_name
+                    self.g_next_global_id += 1
+
+        elif frame.local_instance_mask is not None and frame.local_id_to_class_label_map is not None:
+            # This is likely the first keyframe, or tracking was lost and re-initialized.
+            # Populate global_instance_ids based purely on this frame's SAM segmentation.
+            print(f"[Tracker INFO] Frame {frame.frame_id}: No valid keyframe for propagation or keyframe lacks global IDs. Initializing global IDs from current frame's SAM.")
+            current_frame_local_sam_ids_flat = frame.local_instance_mask.view(-1)
+            if current_frame_local_sam_ids_flat.numel() != num_points_current_frame:
+                 print(f"[Tracker WARN] First Keyframe {frame.frame_id} local_instance_mask numel ({current_frame_local_sam_ids_flat.numel()}) "
+                       f"does not match its point count ({num_points_current_frame}). Cannot init global IDs.")
+            else:
+                unique_local_ids_in_current_frame = torch.unique(current_frame_local_sam_ids_flat)
+                for local_id_val_tensor in unique_local_ids_in_current_frame:
+                    local_id_val = local_id_val_tensor.item()
+                    if local_id_val == 0: # Skip background
+                        continue
+
+                    new_global_id = self.g_next_global_id
+                    frame.global_instance_ids.view(-1)[current_frame_local_sam_ids_flat == local_id_val] = new_global_id
+                    class_name = frame.local_id_to_class_label_map.get(local_id_val, f"unknown_local_id_{local_id_val}")
+                    self.g_global_id_to_class_label_map[new_global_id] = class_name
+                    self.g_next_global_id += 1
+        # --- End: 3D Instance Association Logic ---
+
         use_calib = config["use_calib"]
-        img_size = frame.img.shape[-2:]
+        img_size = frame.img.shape[-2:] # This is the MaSt3R processed image size (e.g., from resize_img)
         if use_calib:
             K = keyframe.K
         else:
