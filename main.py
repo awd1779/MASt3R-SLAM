@@ -22,6 +22,7 @@ from mast3r_slam.mast3r_utils import (
 from mast3r_slam.multiprocess_utils import new_queue, try_get_msg
 from mast3r_slam.tracker import FrameTracker
 from mast3r_slam.visualization import WindowMsg, run_visualization
+from mast3r_slam.semantic import SemanticPerception
 import torch.multiprocessing as mp
 
 
@@ -170,6 +171,7 @@ if __name__ == "__main__":
     dataset = load_dataset(args.dataset)
     dataset.subsample(config["dataset"]["subsample"])
     h, w = dataset.get_img_shape()[0]
+    semantic_module = SemanticPerception()
 
     if args.calib:
         with open(args.calib, "r") as f:
@@ -261,11 +263,15 @@ if __name__ == "__main__":
             else states.get_frame().T_WC
         )
         frame = create_frame(i, img, T_WC, img_size=dataset.img_size, device=device)
+        # semantic segmentation
+        instance_mask, instance_labels = semantic_module.process_frame(frame.uimg.cpu().numpy())
+        frame.instance_mask = torch.from_numpy(instance_mask).to(torch.int)
+        frame.instance_labels = instance_labels
 
         if mode == Mode.INIT:
             # Initialize via mono inference, and encoded features neeed for database
             X_init, C_init = mast3r_inference_mono(model, frame)
-            frame.update_pointmap(X_init, C_init)
+            frame.update_pointmap(X_init, C_init, frame.instance_mask)
             keyframes.append(frame)
             states.queue_global_optimization(len(keyframes) - 1)
             states.set_mode(Mode.TRACKING)
@@ -281,7 +287,7 @@ if __name__ == "__main__":
 
         elif mode == Mode.RELOC:
             X, C = mast3r_inference_mono(model, frame)
-            frame.update_pointmap(X, C)
+            frame.update_pointmap(X, C, frame.instance_mask)
             states.set_frame(frame)
             states.queue_reloc()
             # In single threaded mode, make sure relocalization happen for every frame
