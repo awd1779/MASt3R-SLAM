@@ -213,13 +213,25 @@ if __name__ == "__main__":
     if dataset.save_results:
         save_dir, seq_name = eval.prepare_savedir(args, dataset)
         traj_file = save_dir / f"{seq_name}.txt"
-        recon_file = save_dir / f"{seq_name}.ply"
+        # recon_file = save_dir / f"{seq_name}.ply" # Path for the main PLY
+        # seg_color_recon_file = save_dir / f"{seq_name}_seg_color.ply" # Path for the seg color PLY
+
+        # It's good practice to remove potentially multiple output files if they exist
+        for ply_suffix in [".ply", "_seg_color.ply"]:
+            recon_file_to_check = save_dir / f"{seq_name}{ply_suffix}"
+            if recon_file_to_check.exists():
+                recon_file_to_check.unlink()
+
         if traj_file.exists():
             traj_file.unlink()
-        if recon_file.exists():
-            recon_file.unlink()
 
-    tracker = FrameTracker(model, keyframes, device)
+
+    # Initialize the map for global instance IDs to their class names
+    # This map will be populated by FrameTracker
+    g_initial_global_id_to_class_label_map = {0: "background"}
+
+    # Instantiate FrameTracker, passing the initial map
+    tracker = FrameTracker(model, keyframes, device, g_initial_global_id_to_class_label_map)
     last_msg = WindowMsg()
 
     backend = mp.Process(target=run_backend, args=(config, model, states, keyframes, K))
@@ -312,11 +324,16 @@ if __name__ == "__main__":
     if dataset.save_results:
         save_dir, seq_name = eval.prepare_savedir(args, dataset)
         eval.save_traj(save_dir, f"{seq_name}.txt", dataset.timestamps, keyframes)
+
+        # Retrieve the final populated map from the tracker instance
+        final_global_semantic_map = tracker.g_global_id_to_class_label_map
+
         eval.save_reconstruction(
             save_dir,
-            f"{seq_name}.ply",
+            f"{seq_name}.ply", # Base filename for PLY files
             keyframes,
-            last_msg.C_conf_threshold,
+            last_msg.C_conf_threshold, # Or however this is determined
+            global_id_to_name_map=final_global_semantic_map # Pass the populated map
         )
         eval.save_keyframes(
             save_dir / "keyframes" / seq_name, dataset.timestamps, keyframes
