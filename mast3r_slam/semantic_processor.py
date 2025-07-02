@@ -395,4 +395,3 @@ if __name__ == '__main__':
             import traceback
             traceback.print_exc()
         print("\nSemantic Processor __main__ test complete.")
-```

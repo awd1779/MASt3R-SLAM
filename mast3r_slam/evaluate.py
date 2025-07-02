@@ -271,5 +271,3 @@ def save_ply(filename, points, colors, labels, label_map, property_name="quality
         ply_data.write(filename)
     except Exception as e_ply_write:
         print(f"[ERROR eval.py] Failed to write PLY file {filename}: {e_ply_write}")
-
-```
