@@ -5,7 +5,9 @@ import lietorch
 import torch
 from mast3r_slam.mast3r_utils import resize_img
 from mast3r_slam.config import config
-from .seem_utils import load_sam_model, run_sam_inference # Changed to load_sam_model
+# Removed old seem_utils import, will add semantic_processor import
+# from .seem_utils import load_sam_model, run_sam_inference
+from mast3r_slam.semantic_processor import process_frame_for_semantics, TEXT_PROMPTS as SEMANTIC_TEXT_PROMPTS
 
 
 class Mode(Enum):
@@ -227,19 +229,36 @@ def create_frame(i, img, T_WC, img_size=512, device="cuda:0"):
     seem_input_image_np = frame.uimg.numpy() # uimg is already a tensor, get its numpy array
     seem_input_tensor = torch.from_numpy(seem_input_image_np).permute(2, 0, 1).float().to(device) # C, H, W
 
-    # Ensure SAM model is loaded.
-    # In a real scenario, model loading might be handled more explicitly at the start of main.py
-    # The load_sam_model function is designed to load only once.
-    load_sam_model() # Changed from load_seem_model. TODO: User should manage SAM model loading path and device in seem_utils.py
+    # Ensure SAM model is loaded. (This is now handled within process_frame_for_semantics)
+    # load_sam_model() # Old call, no longer needed here directly
 
-    # Run SAM inference
-    # Vocabulary is not directly used by SamAutomaticMaskGenerator but kept for API consistency.
-    raw_mask, label_map_from_sam = run_sam_inference(seem_input_tensor) # Changed to run_sam_inference
+    # Run SAM inference (This is now handled within process_frame_for_semantics)
+    # raw_mask, label_map_from_sam = run_sam_inference(seem_input_tensor)
 
-    frame.raw_segmentation_mask = raw_mask.to(device) # Ensure mask is on the same device as other frame data
-    frame.label_map = label_map_from_sam # Changed variable name for consistency
+    # --- New: Call Semantic Processor ---
+    # frame.rgb is shape (1, 3, H, W), process_frame_for_semantics expects (C, H, W)
+    # frame.uimg is (H_uimg, W_uimg, 3) unnormalized tensor.
+    # semantic_processor expects CHW, 0-1, RGB. `frame.rgb.squeeze(0)` should be suitable.
+    # Note: The device of frame.rgb is already 'device'
 
-    # Note: frame.point_labels will be populated in update_pointmap
+    # The TEXT_PROMPTS from semantic_processor are used by default if not overridden.
+    # User will need to configure TEXT_PROMPTS in semantic_processor.py
+    try:
+        # print(f"[DEBUG create_frame] Calling semantic processor for frame {i} with image shape {frame.rgb.squeeze(0).shape}")
+        local_mask, local_map = process_frame_for_semantics(
+            image_tensor_chw_0_1_rgb=frame.rgb.squeeze(0), # Use the normalized RGB tensor MaSt3R uses
+            text_prompts_for_clip=SEMANTIC_TEXT_PROMPTS # Pass the globally defined prompts
+        )
+        frame.local_instance_mask = local_mask.to(device) # Ensure it's on the correct device
+        frame.local_id_to_class_label_map = local_map
+        # print(f"[DEBUG create_frame] Semantic processing done for frame {i}. Mask unique: {torch.unique(local_mask)}, Map: {local_map}")
+    except Exception as e_semantic:
+        print(f"[ERROR create_frame] Semantic processing failed for frame {i}: {e_semantic}")
+        # Frame will proceed without semantic info if this fails
+        frame.local_instance_mask = None
+        frame.local_id_to_class_label_map = None
+
+    # frame.global_instance_ids will be populated later in FrameTracker.track
     return frame
 
 
