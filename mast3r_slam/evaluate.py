@@ -173,7 +173,35 @@ def save_reconstruction(savedir, filename, keyframes, c_conf_threshold):
     print(f"[DIAGNOSTIC evaluate.py - save_reconstruction END]")
     # --- End Diagnostic Prints ---
 
-    save_ply(savedir / filename, pointclouds_np, colors_np, labels_global_np, reconstructed_global_label_map)
+    # Save the original PLY with original colors and 'quality' attribute for labels
+    save_ply(savedir / filename, pointclouds_np, colors_np, labels_global_np, reconstructed_global_label_map, property_name="quality")
+
+    # Additionally, save a second PLY file where vertex colors ARE the segmentation colors
+    if labels_global_np.size > 0 and labels_global_np.shape[0] == pointclouds_np.shape[0]:
+        print(f"[INFO] Generating PLY with segmentation colors: {filename.stem}_seg_color.ply")
+
+        # Define the same color map as used in save_keyframes (but RGB 0-255)
+        label_to_rgb_map = {
+            0: [128, 128, 128],  # Grey for label 0 (background)
+            1: [255, 0, 0],      # Red for label 1
+            2: [0, 255, 0],      # Green for label 2
+            3: [0, 0, 255],      # Blue for label 3
+            4: [255, 255, 0],    # Yellow for label 4
+            5: [255, 0, 255],    # Magenta for label 5
+            6: [0, 255, 255],    # Cyan for label 6
+            # Add more if needed, or a default color
+        }
+        default_seg_color_rgb = [30, 30, 30] # Dark grey for undefined labels
+
+        seg_colors_np = np.zeros_like(colors_np)
+        for label_id in np.unique(labels_global_np):
+            color_rgb = label_to_rgb_map.get(label_id, default_seg_color_rgb)
+            seg_colors_np[labels_global_np == label_id] = color_rgb
+
+        seg_color_filename = savedir / f"{filename.stem}_seg_color.ply"
+        # Save this PLY without the extra 'quality'/'label_id' property, as color itself shows segmentation
+        save_ply(seg_color_filename, pointclouds_np, seg_colors_np, labels=None, label_map=reconstructed_global_label_map, property_name=None)
+        print(f"[INFO] Saved PLY with segmentation colors to {seg_color_filename}")
 
 
 def save_keyframes(savedir, timestamps, keyframes: SharedKeyframes):
@@ -225,29 +253,41 @@ def save_keyframes(savedir, timestamps, keyframes: SharedKeyframes):
             cv2.imwrite(str(mask_filename), colored_mask_img)
 
 
-def save_ply(filename, points, colors, labels, label_map): # Added labels and label_map
+def save_ply(filename, points, colors, labels, label_map, property_name="quality"): # Added property_name argument
     colors = colors.astype(np.uint8)
-    labels = labels.astype(np.uint8) # Ensure labels are uchar
 
-    # Combine XYZ, RGB, and Label ID into a structured array
-    # Ensure that the number of points, colors, and labels are consistent
     num_points = len(points)
-    if len(colors) != num_points or len(labels) != num_points:
-        raise ValueError(
-            f"Mismatch in array lengths: points ({num_points}), "
-            f"colors ({len(colors)}), labels ({len(labels)})"
-        )
+    if len(colors) != num_points:
+        # This check is always needed as colors are fundamental
+        raise ValueError(f"Mismatch in array lengths: points ({num_points}), colors ({len(colors)})")
 
-    pcd_dtype = [
+    # Base pcd_dtype with XYZ and RGB
+    pcd_dtype_list = [
         ("x", "f4"), ("y", "f4"), ("z", "f4"),
         ("red", "u1"), ("green", "u1"), ("blue", "u1"),
-        ("quality", "u1") # Changed "label_id" to "quality" for MeshLab
     ]
-    pcd = np.empty(num_points, dtype=pcd_dtype)
+
+    # Add label property if labels are provided and property_name is specified
+    if labels is not None and property_name:
+        if len(labels) != num_points:
+            raise ValueError(
+                f"Mismatch in array lengths for label property '{property_name}': points ({num_points}), labels ({len(labels)})"
+            )
+        labels = labels.astype(np.uint8) # Ensure labels are uchar for the property
+        pcd_dtype_list.append((property_name, "u1"))
+    elif labels is not None and not property_name:
+        # This case should ideally not happen if logic in save_reconstruction is correct
+        # (i.e., if labels are provided, a property_name should also be given for where to store them)
+        print(f"[Warning] Labels were provided to save_ply, but no property_name was specified. Labels will not be saved.")
+    # If labels is None, the pcd_dtype_list remains as base (XYZ + RGB)
+
+    pcd = np.empty(num_points, dtype=pcd_dtype_list) # Use the dynamically built list
 
     pcd["x"], pcd["y"], pcd["z"] = points.T
     pcd["red"], pcd["green"], pcd["blue"] = colors.T
-    pcd["quality"] = labels # Changed "label_id" to "quality"
+
+    if labels is not None and property_name:
+        pcd[property_name] = labels
 
     vertex_element = PlyElement.describe(pcd, "vertex")
 
