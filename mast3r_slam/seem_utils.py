@@ -52,16 +52,16 @@ def load_sam_model(checkpoint_path: str = SAM_CHECKPOINT_PATH,
         # See: https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/automatic_mask_generator.py
         _sam_mask_generator = SamAutomaticMaskGenerator(
             model=_sam_model,
-            points_per_side=32,  # Default is 32. Lower for faster, coarser; higher for slower, finer.
-            pred_iou_thresh=0.88, # Default is 0.88.
-            stability_score_thresh=0.95, # Default is 0.95
-            # min_mask_region_area=100, # Example: filter out very small masks
-            # box_nms_thresh=0.7, # Default
-            # crop_n_layers=0, # Default
-            # crop_nms_thresh=0.7, # Default
-            # output_mode="binary_mask", # Default
+            points_per_side=32,
+            pred_iou_thresh=0.88,
+            stability_score_thresh=0.95,
+            min_mask_region_area=200, # Added: Filter out small regions (area in pixels)
+            # box_nms_thresh=0.7,
+            # crop_n_layers=0,
+            # crop_nms_thresh=0.7,
+            # output_mode="binary_mask",
         )
-        print("[INFO] SAM model and SamAutomaticMaskGenerator loaded successfully.")
+        print("[INFO] SAM model and SamAutomaticMaskGenerator loaded successfully (with min_mask_region_area=200).")
     except FileNotFoundError:
         print(f"[ERROR] SAM Checkpoint file not found at: {checkpoint_path}")
         print(f"[ERROR] Please download the SAM checkpoint and update SAM_CHECKPOINT_PATH in mast3r_slam/seem_utils.py")
