@@ -178,7 +178,11 @@ def save_reconstruction(savedir, filename, keyframes, c_conf_threshold):
 
     # Additionally, save a second PLY file where vertex colors ARE the segmentation colors
     if labels_global_np.size > 0 and labels_global_np.shape[0] == pointclouds_np.shape[0]:
-        print(f"[INFO] Generating PLY with segmentation colors: {filename.stem}_seg_color.ply")
+        # Convert filename string to Path object to access .stem
+        filepath_obj = pathlib.Path(filename)
+        seg_color_ply_name = f"{filepath_obj.stem}_seg_color.ply"
+
+        print(f"[INFO] Generating PLY with segmentation colors: {seg_color_ply_name}")
 
         # Define the same color map as used in save_keyframes (but RGB 0-255)
         label_to_rgb_map = {
@@ -198,10 +202,10 @@ def save_reconstruction(savedir, filename, keyframes, c_conf_threshold):
             color_rgb = label_to_rgb_map.get(label_id, default_seg_color_rgb)
             seg_colors_np[labels_global_np == label_id] = color_rgb
 
-        seg_color_filename = savedir / f"{filename.stem}_seg_color.ply"
+        seg_color_filename_path = savedir / seg_color_ply_name # Use the new name
         # Save this PLY without the extra 'quality'/'label_id' property, as color itself shows segmentation
-        save_ply(seg_color_filename, pointclouds_np, seg_colors_np, labels=None, label_map=reconstructed_global_label_map, property_name=None)
-        print(f"[INFO] Saved PLY with segmentation colors to {seg_color_filename}")
+        save_ply(seg_color_filename_path, pointclouds_np, seg_colors_np, labels=None, label_map=reconstructed_global_label_map, property_name=None)
+        print(f"[INFO] Saved PLY with segmentation colors to {seg_color_filename_path}")
 
 
 def save_keyframes(savedir, timestamps, keyframes: SharedKeyframes):
