@@ -146,16 +146,34 @@ def save_reconstruction(savedir, filename, keyframes, c_conf_threshold):
     print(f"  Shape of final pointclouds_np: {pointclouds_np.shape}")
     print(f"  Shape of final colors_np: {colors_np.shape}")
     print(f"  Shape of final labels_global_np: {labels_global_np.shape}")
+
+    unique_final_labels_list = []
     if labels_global_np.size > 0:
         unique_final_labels, counts_final_labels = np.unique(labels_global_np, return_counts=True)
-        print(f"  Unique final labels (ID: count): {list(zip(unique_final_labels.tolist(), counts_final_labels.tolist()))}")
+        unique_final_labels_list = unique_final_labels.tolist()
+        print(f"  Unique final labels (ID: count): {list(zip(unique_final_labels_list, counts_final_labels.tolist()))}")
     else:
         print(f"  labels_global_np is empty.")
-    print(f"  Global label map for PLY: {global_label_map}")
+
+    # Reconstruct global_label_map based on actual unique labels found in the data
+    # This ensures the PLY header map is accurate even if individual keyframe.label_map was not aggregated.
+    # (The previous global_label_map.update(keyframe.label_map) was ineffective due to SharedKeyframes not storing dicts)
+    reconstructed_global_label_map = {0: "background"} # Always include background
+    if unique_final_labels_list: # If there are any labels at all
+        max_id_in_data = 0
+        if unique_final_labels_list: # Check if list is not empty
+             max_id_in_data = max(unique_final_labels_list) if max(unique_final_labels_list) > 0 else 0
+
+        for i in range(1, int(max_id_in_data) + 1):
+            # Only add if the label ID was actually present in the final data, or assume all up to max_id could exist.
+            # For SAM's object_X naming, it's safer to just map all up to max_id.
+            reconstructed_global_label_map[i] = f"object_{i}"
+
+    print(f"  Reconstructed Global label map for PLY: {reconstructed_global_label_map}")
     print(f"[DIAGNOSTIC evaluate.py - save_reconstruction END]")
     # --- End Diagnostic Prints ---
 
-    save_ply(savedir / filename, pointclouds_np, colors_np, labels_global_np, global_label_map)
+    save_ply(savedir / filename, pointclouds_np, colors_np, labels_global_np, reconstructed_global_label_map)
 
 
 def save_keyframes(savedir, timestamps, keyframes: SharedKeyframes):
