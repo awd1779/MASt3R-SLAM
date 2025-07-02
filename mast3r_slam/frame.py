@@ -161,6 +161,32 @@ class Frame:
                     self.point_labels = None
                 else:
                     self.point_labels = self.point_labels.to(self.X_canon.device)
+
+            # --- Start Diagnostic Prints for update_pointmap ---
+            print(f"[DIAGNOSTIC frame.py - Frame {self.frame_id} update_pointmap]")
+            if self.X_canon is not None:
+                print(f"  X_canon shape: {self.X_canon.shape}")
+            else:
+                print(f"  X_canon is None")
+            if self.raw_segmentation_mask is not None:
+                print(f"  raw_segmentation_mask shape: {self.raw_segmentation_mask.shape}")
+            else:
+                print(f"  raw_segmentation_mask is None")
+            if self.point_labels is not None:
+                print(f"  point_labels shape: {self.point_labels.shape}")
+                try:
+                    unique_labels, counts = torch.unique(self.point_labels, return_counts=True)
+                    print(f"  Unique point_labels (ID: count): {list(zip(unique_labels.cpu().tolist(), counts.cpu().tolist()))}")
+                except Exception as e_unique:
+                    print(f"  Error getting unique point_labels: {e_unique}")
+            else:
+                print(f"  point_labels is None")
+            if self.label_map is not None:
+                print(f"  label_map: {self.label_map}")
+            else:
+                print(f"  label_map is None")
+            print(f"[DIAGNOSTIC frame.py - Frame {self.frame_id} update_pointmap END]")
+            # --- End Diagnostic Prints ---
         return
 
     def get_average_conf(self):

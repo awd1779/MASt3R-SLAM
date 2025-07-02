@@ -105,11 +105,57 @@ def save_reconstruction(savedir, filename, keyframes, c_conf_threshold):
             # Naive merge: last seen label for an ID wins. Could be smarter.
             global_label_map.update(keyframe.label_map)
 
-    pointclouds = np.concatenate(pointclouds, axis=0)
-    colors = np.concatenate(colors, axis=0)
-    labels_global = np.concatenate(labels_global, axis=0).astype(np.uint8) # Ensure uchar for PLY
+    pointclouds_np = np.concatenate(pointclouds, axis=0)
+    colors_np = np.concatenate(colors, axis=0)
 
-    save_ply(savedir / filename, pointclouds, colors, labels_global, global_label_map)
+    # --- Start Diagnostic Prints for save_reconstruction (before concatenation) ---
+    print(f"[DIAGNOSTIC evaluate.py - save_reconstruction PRE-CONCAT]")
+    total_labels_collected_count = sum(len(lbl_arr) for lbl_arr in labels_global if lbl_arr is not None)
+    print(f"  Number of keyframes processed for PLY: {len(keyframes)}")
+    print(f"  Total points collected: {len(pointclouds_np)}")
+    print(f"  Total color entries collected: {len(colors_np)}")
+    print(f"  Number of label arrays in labels_global: {len(labels_global)}")
+    print(f"  Total individual label entries collected (sum of lengths in labels_global): {total_labels_collected_count}")
+    # --- End Diagnostic Prints ---
+
+    if not labels_global: # Handle case where no labels were collected at all
+        print("[Warning] No labels were collected in labels_global. PLY will have default label 0 for all points.")
+        labels_global_np = np.zeros(len(pointclouds_np), dtype=np.uint8)
+    elif all(arr is None or len(arr) == 0 for arr in labels_global): # All arrays are None or empty
+        print("[Warning] All label arrays in labels_global are None or empty. PLY will have default label 0 for all points.")
+        labels_global_np = np.zeros(len(pointclouds_np), dtype=np.uint8)
+    else: # Concatenate if there's actual label data
+        # Filter out None arrays before concatenation if any slipped through (shouldn't with current logic)
+        valid_label_arrays = [lbl_arr for lbl_arr in labels_global if lbl_arr is not None and len(lbl_arr) > 0]
+        if not valid_label_arrays:
+            print("[Warning] No valid label arrays to concatenate. PLY will have default label 0 for all points.")
+            labels_global_np = np.zeros(len(pointclouds_np), dtype=np.uint8)
+        else:
+            try:
+                labels_global_np = np.concatenate(valid_label_arrays, axis=0).astype(np.uint8)
+            except ValueError as e_concat:
+                print(f"[ERROR] Failed to concatenate label arrays: {e_concat}. Lengths might be inconsistent.")
+                print(f"  Lengths of arrays in labels_global: {[len(arr) for arr in valid_label_arrays]}")
+                print(f"  This often happens if a keyframe had valid points but its label array was empty or mismatched.")
+                print(f"  Saving PLY with default label 0 for all points.")
+                labels_global_np = np.zeros(len(pointclouds_np), dtype=np.uint8)
+
+
+    # --- Start Diagnostic Prints for save_reconstruction (POST-CONCAT) ---
+    print(f"[DIAGNOSTIC evaluate.py - save_reconstruction POST-CONCAT]")
+    print(f"  Shape of final pointclouds_np: {pointclouds_np.shape}")
+    print(f"  Shape of final colors_np: {colors_np.shape}")
+    print(f"  Shape of final labels_global_np: {labels_global_np.shape}")
+    if labels_global_np.size > 0:
+        unique_final_labels, counts_final_labels = np.unique(labels_global_np, return_counts=True)
+        print(f"  Unique final labels (ID: count): {list(zip(unique_final_labels.tolist(), counts_final_labels.tolist()))}")
+    else:
+        print(f"  labels_global_np is empty.")
+    print(f"  Global label map for PLY: {global_label_map}")
+    print(f"[DIAGNOSTIC evaluate.py - save_reconstruction END]")
+    # --- End Diagnostic Prints ---
+
+    save_ply(savedir / filename, pointclouds_np, colors_np, labels_global_np, global_label_map)
 
 
 def save_keyframes(savedir, timestamps, keyframes: SharedKeyframes):
