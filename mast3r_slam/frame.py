@@ -244,10 +244,12 @@ def create_frame(i, img, T_WC, img_size=512, device="cuda:0"):
     # The TEXT_PROMPTS from semantic_processor are used by default if not overridden.
     # User will need to configure TEXT_PROMPTS in semantic_processor.py
     try:
-        # print(f"[DEBUG create_frame] Calling semantic processor for frame {i} with image shape {frame.rgb.squeeze(0).shape}")
+        # print(f"[DEBUG create_frame] Calling semantic processor for frame {i} with image shape {rgb.squeeze(0).shape}")
+        # Use the local 'rgb' tensor here, not 'frame.rgb' as 'frame' object isn't fully formed in this scope for this specific attribute yet.
+        # 'rgb' is (1, C, H, W), so squeeze batch dim.
         local_mask, local_map = process_frame_for_semantics(
-            image_tensor_chw_0_1_rgb=frame.rgb.squeeze(0), # Use the normalized RGB tensor MaSt3R uses
-            text_prompts_for_clip=SEMANTIC_TEXT_PROMPTS # Pass the globally defined prompts
+            image_tensor_chw_0_1_rgb=rgb.squeeze(0),
+            text_prompts_for_clip=SEMANTIC_TEXT_PROMPTS
         )
         frame.local_instance_mask = local_mask.to(device) # Ensure it's on the correct device
         frame.local_id_to_class_label_map = local_map
@@ -369,7 +371,7 @@ class SharedStates:
             # or it's used ephemerally by the process that calls set_frame.
             # For now, reconstructed_frame.local_id_to_class_label_map will be None unless set explicitly afterwards.
             # This is a common pattern: shared memory for tensors, Python dicts travel with object instances if not serialized.
-            return frame
+            return reconstructed_frame # Fixed typo: was 'frame'
 
     def queue_global_optimization(self, idx):
         with self.lock:
