@@ -26,6 +26,8 @@ class Frame:
     C: Optional[torch.Tensor] = None
     feat: Optional[torch.Tensor] = None
     pos: Optional[torch.Tensor] = None
+    instance_mask: Optional[torch.Tensor] = None
+    instance_labels: Optional[dict] = None
     N: int = 0
     N_updates: int = 0
     K: Optional[torch.Tensor] = None
@@ -38,12 +40,14 @@ class Frame:
             score = torch.mean(C)
         return score
 
-    def update_pointmap(self, X: torch.Tensor, C: torch.Tensor):
+    def update_pointmap(self, X: torch.Tensor, C: torch.Tensor, instance_mask: Optional[torch.Tensor] = None):
         filtering_mode = config["tracking"]["filtering_mode"]
 
         if self.N == 0:
             self.X_canon = X.clone()
             self.C = C.clone()
+            if instance_mask is not None:
+                self.instance_mask = instance_mask.clone()
             self.N = 1
             self.N_updates = 1
             if filtering_mode == "best_score":
@@ -54,25 +58,38 @@ class Frame:
             if self.N_updates == 1:
                 self.X_canon = X.clone()
                 self.C = C.clone()
+                if instance_mask is not None:
+                    self.instance_mask = instance_mask.clone()
                 self.N = 1
         elif filtering_mode == "recent":
             self.X_canon = X.clone()
             self.C = C.clone()
+            if instance_mask is not None:
+                self.instance_mask = instance_mask.clone()
             self.N = 1
         elif filtering_mode == "best_score":
             new_score = self.get_score(C)
             if new_score > self.score:
                 self.X_canon = X.clone()
                 self.C = C.clone()
+                if instance_mask is not None:
+                    self.instance_mask = instance_mask.clone()
                 self.N = 1
                 self.score = new_score
         elif filtering_mode == "indep_conf":
             new_mask = C > self.C
             self.X_canon[new_mask.repeat(1, 3)] = X[new_mask.repeat(1, 3)]
             self.C[new_mask] = C[new_mask]
+            if instance_mask is not None and self.instance_mask is not None:
+                mask2d = new_mask.squeeze(1).view(self.instance_mask.shape)
+                self.instance_mask[mask2d] = instance_mask.view(self.instance_mask.shape)[mask2d]
             self.N = 1
         elif filtering_mode == "weighted_pointmap":
+            update_mask = C > self.C
             self.X_canon = ((self.C * self.X_canon) + (C * X)) / (self.C + C)
+            if instance_mask is not None and self.instance_mask is not None:
+                mask2d = update_mask.squeeze(1).view(self.instance_mask.shape)
+                self.instance_mask[mask2d] = instance_mask.view(self.instance_mask.shape)[mask2d]
             self.C = self.C + C
             self.N += 1
         elif filtering_mode == "weighted_spherical":
@@ -93,11 +110,15 @@ class Frame:
                 P = torch.cat((x, y, z), dim=-1)
                 return P
 
+            update_mask = C > self.C
             spherical1 = cartesian_to_spherical(self.X_canon)
             spherical2 = cartesian_to_spherical(X)
             spherical = ((self.C * spherical1) + (C * spherical2)) / (self.C + C)
 
             self.X_canon = spherical_to_cartesian(spherical)
+            if instance_mask is not None and self.instance_mask is not None:
+                mask2d = update_mask.squeeze(1).view(self.instance_mask.shape)
+                self.instance_mask[mask2d] = instance_mask.view(self.instance_mask.shape)[mask2d]
             self.C = self.C + C
             self.N += 1
 
@@ -144,6 +165,7 @@ class SharedStates:
         self.dataset_idx = torch.zeros(1, device=device, dtype=torch.int).share_memory_()
         self.img = torch.zeros(3, h, w, device=device, dtype=dtype).share_memory_()
         self.uimg = torch.zeros(h, w, 3, device="cpu", dtype=dtype).share_memory_()
+        self.instance_mask = torch.zeros(h, w, device="cpu", dtype=torch.int).share_memory_()
         self.img_shape = torch.zeros(1, 2, device=device, dtype=torch.int).share_memory_()
         self.img_true_shape = torch.zeros(1, 2, device=device, dtype=torch.int).share_memory_()
         self.T_WC = lietorch.Sim3.Identity(1, device=device, dtype=dtype).data.share_memory_()
@@ -165,6 +187,12 @@ class SharedStates:
             self.C[:] = frame.C
             self.feat[:] = frame.feat
             self.pos[:] = frame.pos
+            if frame.instance_mask is not None:
+                self.instance_mask[:] = frame.instance_mask
+            else:
+                self.instance_mask.zero_()
+            if frame.instance_labels is not None:
+                self.instance_labels[0] = frame.instance_labels
 
     def get_frame(self):
         with self.lock:
@@ -180,6 +208,8 @@ class SharedStates:
             frame.C = self.C
             frame.feat = self.feat
             frame.pos = self.pos
+            frame.instance_mask = self.instance_mask
+            frame.instance_labels = dict(self.instance_labels[0])
             return frame
 
     def queue_global_optimization(self, idx):
@@ -234,6 +264,8 @@ class SharedKeyframes:
         self.dataset_idx = torch.zeros(buffer, device=device, dtype=torch.int).share_memory_()
         self.img = torch.zeros(buffer, 3, h, w, device=device, dtype=dtype).share_memory_()
         self.uimg = torch.zeros(buffer, h, w, 3, device="cpu", dtype=dtype).share_memory_()
+        self.instance_mask = torch.zeros(buffer, h, w, device="cpu", dtype=torch.int).share_memory_()
+        self.instance_labels = manager.list([{} for _ in range(buffer)])
         self.img_shape = torch.zeros(buffer, 1, 2, device=device, dtype=torch.int).share_memory_()
         self.img_true_shape = torch.zeros(buffer, 1, 2, device=device, dtype=torch.int).share_memory_()
         self.T_WC = torch.zeros(buffer, 1, lietorch.Sim3.embedded_dim, device=device, dtype=dtype).share_memory_()
@@ -264,6 +296,8 @@ class SharedKeyframes:
             kf.pos = self.pos[idx]
             kf.N = int(self.N[idx])
             kf.N_updates = int(self.N_updates[idx])
+            kf.instance_mask = self.instance_mask[idx]
+            kf.instance_labels = dict(self.instance_labels[idx])
             if config["use_calib"]:
                 kf.K = self.K
             return kf
@@ -285,6 +319,11 @@ class SharedKeyframes:
             self.pos[idx] = value.pos
             self.N[idx] = value.N
             self.N_updates[idx] = value.N_updates
+            if value.instance_mask is not None:
+                self.instance_mask[idx] = value.instance_mask
+            else:
+                self.instance_mask[idx].zero_()
+            self.instance_labels[idx] = value.instance_labels if value.instance_labels is not None else {}
             self.is_dirty[idx] = True
             return idx
 

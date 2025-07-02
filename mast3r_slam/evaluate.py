@@ -49,6 +49,7 @@ def save_reconstruction(savedir, filename, keyframes, c_conf_threshold):
     savedir.mkdir(exist_ok=True, parents=True)
     pointclouds = []
     colors = []
+    instance_ids = []
     for i in range(len(keyframes)):
         keyframe = keyframes[i]
         if config["use_calib"]:
@@ -64,10 +65,16 @@ def save_reconstruction(savedir, filename, keyframes, c_conf_threshold):
         )
         pointclouds.append(pW[valid])
         colors.append(color[valid])
+        if keyframe.instance_mask is not None:
+            ids = keyframe.instance_mask.cpu().numpy().reshape(-1)[valid]
+        else:
+            ids = np.zeros(valid.sum(), dtype=np.int32)
+        instance_ids.append(ids)
     pointclouds = np.concatenate(pointclouds, axis=0)
     colors = np.concatenate(colors, axis=0)
+    instance_ids = np.concatenate(instance_ids, axis=0)
 
-    save_ply(savedir / filename, pointclouds, colors)
+    save_ply(savedir / filename, pointclouds, colors, instance_ids)
 
 
 def save_keyframes(savedir, timestamps, keyframes: SharedKeyframes):
@@ -85,22 +92,17 @@ def save_keyframes(savedir, timestamps, keyframes: SharedKeyframes):
         )
 
 
-def save_ply(filename, points, colors):
+def save_ply(filename, points, colors, instance_ids=None):
     colors = colors.astype(np.uint8)
     # Combine XYZ and RGB into a structured array
-    pcd = np.empty(
-        len(points),
-        dtype=[
-            ("x", "f4"),
-            ("y", "f4"),
-            ("z", "f4"),
-            ("red", "u1"),
-            ("green", "u1"),
-            ("blue", "u1"),
-        ],
-    )
+    dtype=[("x", "f4"), ("y", "f4"), ("z", "f4"), ("red", "u1"), ("green", "u1"), ("blue", "u1")]
+    if instance_ids is not None:
+        dtype.append(("instance_id", "i4"))
+    pcd = np.empty(len(points), dtype=dtype)
     pcd["x"], pcd["y"], pcd["z"] = points.T
     pcd["red"], pcd["green"], pcd["blue"] = colors.T
+    if instance_ids is not None:
+        pcd["instance_id"] = instance_ids
     vertex_element = PlyElement.describe(pcd, "vertex")
     ply_data = PlyData([vertex_element], text=False)
     ply_data.write(filename)

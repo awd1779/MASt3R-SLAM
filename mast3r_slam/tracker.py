@@ -41,7 +41,7 @@ class FrameTracker:
         Qk = torch.sqrt(Qff[idx_f2k] * Qkf)
 
         # Update keyframe pointmap after registration (need pose)
-        frame.update_pointmap(Xff, Cff)
+        frame.update_pointmap(Xff, Cff, frame.instance_mask)
 
         use_calib = config["use_calib"]
         img_size = frame.img.shape[-2:]
@@ -96,7 +96,7 @@ class FrameTracker:
 
         # Use pose to transform points to update keyframe
         Xkk = T_CkCf.act(Xkf)
-        keyframe.update_pointmap(Xkk, Ckf)
+        keyframe.update_pointmap(Xkk, Ckf, frame.instance_mask)
         # write back the fitered pointmap
         self.keyframes[len(self.keyframes) - 1] = keyframe
 
