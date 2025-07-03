@@ -40,7 +40,7 @@ INSTANCE_MODEL_TYPE = "vit_b" # "vit_b", "vit_l", "vit_h"
 
 # CLIP Configuration (using OpenCLIP)
 CLIP_MODEL_NAME = 'ViT-bigG-14'
-CLIP_PRETRAINED_DATASET = 'laion2B-39B-b160k' # From your request
+CLIP_PRETRAINED_DATASET = 'laion2b_s39b_b160k' # Corrected based on error message
 
 # TODO: USER - Define your text prompts for CLIP classification
 TEXT_PROMPTS = [

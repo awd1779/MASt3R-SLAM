@@ -117,87 +117,41 @@ class Frame:
             self.N += 1
 
         self.N_updates += 1
+        # The old logic for associating raw_segmentation_mask with X_canon to create point_labels
+        # has been removed. In the new pipeline:
+        # - local_instance_mask (from SAM2) is generated in create_frame.
+        # - global_instance_ids (persistent labels for X_canon points) are generated in FrameTracker.track
+        #   by associating local_instance_mask with keyframe's global_instance_ids using 3D point matches.
+        # This update_pointmap function is now solely responsible for updating X_canon and C.
 
-        # Associate labels with 3D points
-        if self.raw_segmentation_mask is not None and self.X_canon is not None:
-            # X_canon is (N_points, 3), where N_points is typically h*w
-            # raw_segmentation_mask is (h_mask, w_mask)
-            # self.img_shape can be tensor([h, w]) or tensor([[h, w]])
-
-            current_img_shape_tensor = self.img_shape.cpu()
-            if current_img_shape_tensor.ndim == 1 and current_img_shape_tensor.numel() == 2:
-                # Shape is (2,), e.g., tensor([h, w])
-                h_proc, w_proc = current_img_shape_tensor.tolist()
-            elif current_img_shape_tensor.ndim == 2 and current_img_shape_tensor.shape[0] == 1 and current_img_shape_tensor.shape[1] == 2:
-                # Shape is (1, 2), e.g., tensor([[h, w]])
-                h_proc, w_proc = current_img_shape_tensor[0].tolist()
-            else:
-                print(f"[Error] Frame {self.frame_id}: self.img_shape has unexpected format. Shape: {current_img_shape_tensor.shape}, Value: {current_img_shape_tensor}. Cannot determine h_proc, w_proc.")
-                self.point_labels = None
-                return # Exit early if dimensions can't be determined
-
-            h_mask, w_mask = self.raw_segmentation_mask.shape
-
-            if h_proc == h_mask and w_proc == w_mask:
-                # If dimensions match, reshape mask to align with X_canon points
-                self.point_labels = self.raw_segmentation_mask.reshape(-1, 1).clone()
-            else:
-                # Dimensions do not match. This might happen if SEEM output resolution
-                # is different from MaSt3R's effective resolution for X_canon.
-                # A resize of raw_segmentation_mask might be needed here.
-                # For now, print a warning and skip if not perfectly matched.
-                # User might need to implement robust resizing (e.g., using nearest neighbor for masks).
-                print(f"[Warning] Frame {self.frame_id}: Mismatch between X_canon's implied image dimensions ({h_proc}x{w_proc}) and raw_segmentation_mask dimensions ({h_mask}x{w_mask}). Point labels cannot be directly assigned.")
-                # Attempt resize as a fallback - using NEAREST interpolation for masks
-                if h_proc * w_proc == self.X_canon.shape[0]: # Check if X_canon matches expected number of points
-                    try:
-                        resized_mask = torch.nn.functional.interpolate(
-                            self.raw_segmentation_mask.float().unsqueeze(0).unsqueeze(0), # B, C, H, W
-                            size=(h_proc, w_proc),
-                            mode='nearest'
-                        ).squeeze(0).squeeze(0).long()
-                        self.point_labels = resized_mask.reshape(-1, 1).clone()
-                        print(f"[INFO] Frame {self.frame_id}: Resized raw_segmentation_mask from {h_mask}x{w_mask} to {h_proc}x{w_proc} to match X_canon.")
-                    except Exception as e:
-                        print(f"[Error] Frame {self.frame_id}: Failed to resize raw_segmentation_mask: {e}")
-                        self.point_labels = None # Explicitly set to None
-                else:
-                    self.point_labels = None # Explicitly set to None
-
-            # Ensure point_labels has the same number of entries as points in X_canon (first dim)
-            # and is on the same device.
-            if self.point_labels is not None:
-                if self.point_labels.shape[0] != self.X_canon.shape[0]:
-                    print(f"[Warning] Frame {self.frame_id}: Mismatch in number of point labels ({self.point_labels.shape[0]}) and points in X_canon ({self.X_canon.shape[0]}). Resetting point_labels.")
-                    self.point_labels = None
-                else:
-                    self.point_labels = self.point_labels.to(self.X_canon.device)
-
-            # --- Start Diagnostic Prints for update_pointmap ---
-            print(f"[DIAGNOSTIC frame.py - Frame {self.frame_id} update_pointmap]")
-            if self.X_canon is not None:
-                print(f"  X_canon shape: {self.X_canon.shape}")
-            else:
-                print(f"  X_canon is None")
-            if self.raw_segmentation_mask is not None:
-                print(f"  raw_segmentation_mask shape: {self.raw_segmentation_mask.shape}")
-            else:
-                print(f"  raw_segmentation_mask is None")
-            if self.point_labels is not None:
-                print(f"  point_labels shape: {self.point_labels.shape}")
-                try:
-                    unique_labels, counts = torch.unique(self.point_labels, return_counts=True)
-                    print(f"  Unique point_labels (ID: count): {list(zip(unique_labels.cpu().tolist(), counts.cpu().tolist()))}")
-                except Exception as e_unique:
-                    print(f"  Error getting unique point_labels: {e_unique}")
-            else:
-                print(f"  point_labels is None")
-            if self.label_map is not None:
-                print(f"  label_map: {self.label_map}")
-            else:
-                print(f"  label_map is None")
-            print(f"[DIAGNOSTIC frame.py - Frame {self.frame_id} update_pointmap END]")
-            # --- End Diagnostic Prints ---
+        # --- Start Diagnostic Prints for update_pointmap ---
+        # print(f"[DIAGNOSTIC frame.py - Frame {self.frame_id} update_pointmap]")
+        # if self.X_canon is not None:
+        #     print(f"  X_canon shape: {self.X_canon.shape}")
+        # else:
+        #     print(f"  X_canon is None")
+        # if self.local_instance_mask is not None: # Check new field name
+        #     print(f"  local_instance_mask shape: {self.local_instance_mask.shape}")
+        # else:
+        #     print(f"  local_instance_mask is None")
+        # if self.global_instance_ids is not None: # Check new field name
+        #     print(f"  global_instance_ids shape: {self.global_instance_ids.shape}")
+        #     if self.global_instance_ids.numel() > 0:
+        #         try:
+        #             unique_labels, counts = torch.unique(self.global_instance_ids, return_counts=True)
+        #             print(f"  Unique global_instance_ids (ID: count): {list(zip(unique_labels.cpu().tolist(), counts.cpu().tolist()))}")
+        #         except Exception as e_unique:
+        #             print(f"  Error getting unique global_instance_ids: {e_unique}")
+        #     else:
+        #         print(f"  global_instance_ids is empty.")
+        # else:
+        #     print(f"  global_instance_ids is None")
+        # if self.local_id_to_class_label_map is not None: # Check new field name
+        #     print(f"  local_id_to_class_label_map: {self.local_id_to_class_label_map}")
+        # else:
+        #     print(f"  local_id_to_class_label_map is None")
+        # print(f"[DIAGNOSTIC frame.py - Frame {self.frame_id} update_pointmap END]")
+        # --- End Diagnostic Prints ---
         return
 
     def get_average_conf(self):
