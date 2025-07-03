@@ -7,7 +7,6 @@ from mast3r_slam.dataloader import Intrinsics
 from mast3r_slam.frame import SharedKeyframes
 from mast3r_slam.lietorch_utils import as_SE3
 from mast3r_slam.config import config
-# from mast3r_slam.geometry import constrain_points_to_ray # Not strictly needed if X_canon is used as is
 from plyfile import PlyData, PlyElement
 
 
@@ -27,7 +26,6 @@ def save_traj(
     frames: SharedKeyframes,
     intrinsics: Optional[Intrinsics] = None,
 ):
-    # log
     logdir = pathlib.Path(logdir)
     logdir.mkdir(exist_ok=True, parents=True)
     logfile = logdir / logfile
@@ -35,14 +33,8 @@ def save_traj(
         for i in range(len(frames)):
             keyframe = frames[i]
             t = timestamps[keyframe.frame_id]
-            if intrinsics is None:
-                T_WC = as_SE3(keyframe.T_WC)
-            else:
-                # This refine_pose_with_calibration was specific to some eval setups,
-                # for general saving, using keyframe.T_WC is more direct.
-                # T_WC = intrinsics.refine_pose_with_calibration(keyframe)
-                T_WC = as_SE3(keyframe.T_WC) # Use the pose stored in the keyframe
-            x, y, z, qx, qy, qz, qw = T_WC.data.squeeze().cpu().numpy() # Ensure squeeze if T_WC has batch dim 1
+            T_WC = as_SE3(keyframe.T_WC)
+            x, y, z, qx, qy, qz, qw = T_WC.data.squeeze().cpu().numpy()
             f.write(f"{t} {x} {y} {z} {qx} {qy} {qz} {qw}\n")
 
 
@@ -72,21 +64,14 @@ def save_reconstruction(savedir, filename, keyframes: SharedKeyframes,
             print(f"[Warning eval.py] Keyframe {keyframe.frame_id} (idx {i}) has no X_canon points. Skipping.")
             continue
 
-        # Note: `constrain_points_to_ray` was previously in visualization and here.
-        # If `keyframe.X_canon` is already the set of points whose labels are in `keyframe.global_instance_ids`,
-        # then further modification by `constrain_points_to_ray` here (if it changes point count/order)
-        # would misalign labels. We assume `keyframe.X_canon` is the definitive geometry.
-        # If `use_calib` implies X_canon should always be ray-constrained, that should happen before label association.
-
         pW_all_kf_points = keyframe.T_WC.act(X_canon_for_proj).cpu().numpy().reshape(-1, 3)
-        # Ensure uimg is a tensor before .cpu().numpy() if it comes from shared memory as numpy
         uimg_np = keyframe.uimg.cpu().numpy() if isinstance(keyframe.uimg, torch.Tensor) else keyframe.uimg
         color_all_kf_points = (uimg_np * 255).astype(np.uint8).reshape(-1, 3)
 
         conf_tensor = keyframe.get_average_conf()
         if conf_tensor is None or conf_tensor.numel() == 0:
-            print(f"[Warning eval.py] Keyframe {keyframe.frame_id} (idx {i}) has no confidence data. Skipping confidence filter, taking all points.")
-            confidence_all_kf_points = np.ones(X_canon_for_proj.shape[0], dtype=np.float32) * (c_conf_threshold + 1.0) # Effectively take all
+            print(f"[Warning eval.py] Keyframe {keyframe.frame_id} (idx {i}) has no confidence data. Assuming all points valid for this KF.")
+            confidence_all_kf_points = np.ones(X_canon_for_proj.shape[0], dtype=np.float32) * (c_conf_threshold + 1.0)
         else:
             confidence_all_kf_points = conf_tensor.cpu().numpy().astype(np.float32).reshape(-1)
 
@@ -123,12 +108,10 @@ def save_reconstruction(savedir, filename, keyframes: SharedKeyframes,
     colors_np = np.concatenate(colors_list, axis=0)
 
     if not labels_list or all(arr is None or len(arr) == 0 for arr in labels_list):
-        print("[Warning eval.py] No actual labels were collected for PLY. Using default label 0 for all points.")
         labels_global_np = np.zeros(len(pointclouds_np), dtype=np.uint8)
     else:
         valid_label_arrays = [lbl_arr for lbl_arr in labels_list if lbl_arr is not None and len(lbl_arr) > 0]
         if not valid_label_arrays:
-            print("[Warning eval.py] No valid label arrays to concatenate. Using default label 0.")
             labels_global_np = np.zeros(len(pointclouds_np), dtype=np.uint8)
         else:
             try:
@@ -143,7 +126,9 @@ def save_reconstruction(savedir, filename, keyframes: SharedKeyframes,
 
     print(f"[DIAGNOSTIC evaluate.py - save_reconstruction FINAL AGGREGATION]")
     print(f"  Total points for PLY: {pointclouds_np.shape[0]}")
-    # ... (other diagnostic prints can be kept or removed as needed) ...
+    if labels_global_np.size > 0:
+        unique_final_labels, counts_final_labels = np.unique(labels_global_np, return_counts=True)
+        print(f"  Unique final labels in PLY (ID: count): {list(zip(unique_final_labels.tolist(), counts_final_labels.tolist()))}")
     print(f"  Label map for PLY comments (from tracker): {final_label_map_for_ply_comments}")
     print(f"[DIAGNOSTIC evaluate.py - save_reconstruction END]")
 
@@ -157,10 +142,9 @@ def save_reconstruction(savedir, filename, keyframes: SharedKeyframes,
 
         np.random.seed(42)
         unique_ids_in_ply = np.unique(labels_global_np)
-        dynamic_rgb_color_map = {label_id: list(np.random.randint(50, 251, size=3)) # Avoid pure black/white, stay in 0-255 uchar range
+        dynamic_rgb_color_map = {label_id: list(np.random.randint(50, 251, size=3))
                                  for label_id in unique_ids_in_ply if label_id != 0}
         dynamic_rgb_color_map[0] = [128, 128, 128]
-
         default_seg_color_rgb = [30, 30, 30]
 
         seg_colors_np = np.zeros_like(colors_np)
@@ -180,10 +164,6 @@ def save_keyframes(savedir, timestamps, keyframes: SharedKeyframes):
     mask_savedir = savedir / "masks"
     mask_savedir.mkdir(exist_ok=True, parents=True)
 
-    label_to_color_map_bgr = {
-        0: [128, 128, 128], 1: [0, 0, 255], 2: [0, 255, 0], 3: [255, 0, 0],
-        4: [0, 255, 255], 5: [255, 0, 255], 6: [255, 255, 0],
-    }
     default_mask_color_bgr = [30, 30, 30]
 
     for i in range(len(keyframes)):
@@ -197,27 +177,24 @@ def save_keyframes(savedir, timestamps, keyframes: SharedKeyframes):
             cv2.cvtColor((uimg_np * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
         )
 
-        # Use local_instance_mask for saving mask images
         if keyframe.local_instance_mask is not None and keyframe.local_instance_mask.numel() > 0:
             mask_tensor = keyframe.local_instance_mask.cpu().numpy().astype(np.uint8)
             h, w = mask_tensor.shape
             colored_mask_img = np.zeros((h, w, 3), dtype=np.uint8)
 
-            # Use a dynamic color map for mask images as well for many SAM segments
             unique_labels_in_mask = np.unique(mask_tensor)
-            np.random.seed(42) # Consistent colors with _seg_color.ply if desired
+            np.random.seed(42)
             dynamic_bgr_color_map_mask = {
                 label_id: list(np.random.randint(50, 251, size=3).astype(np.uint8))
                 for label_id in unique_labels_in_mask if label_id != 0
             }
             dynamic_bgr_color_map_mask[0] = [128,128,128]
 
-
             for label_id_val in unique_labels_in_mask:
                 color_bgr = dynamic_bgr_color_map_mask.get(label_id_val, default_mask_color_bgr)
                 colored_mask_img[mask_tensor == label_id_val] = color_bgr
 
-            mask_filename = mask_savedir / f"{t}_local_mask.png" # Renamed to reflect it's local
+            mask_filename = mask_savedir / f"{t}_local_mask.png"
             cv2.imwrite(str(mask_filename), colored_mask_img)
 
 
@@ -256,10 +233,9 @@ def save_ply(filename, points, colors, labels, label_map, property_name="quality
     comments = []
     if label_map:
         comments.append("label_map_start")
-        # Sort by ID for consistent header, converting keys to int for sorting if they are strings
         try:
             sorted_label_map_items = sorted(label_map.items(), key=lambda item: int(item[0]))
-        except ValueError: # Handle non-integer keys if they somehow occur, though less likely now
+        except ValueError:
             sorted_label_map_items = sorted(label_map.items())
 
         for label_id, name in sorted_label_map_items:
