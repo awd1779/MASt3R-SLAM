@@ -23,6 +23,7 @@ from mast3r_slam.multiprocess_utils import new_queue, try_get_msg
 from mast3r_slam.tracker import FrameTracker
 from mast3r_slam.visualization import WindowMsg, run_visualization
 import torch.multiprocessing as mp
+from mast3r_slam.semantic_processor import process_frame_for_semantics, TEXT_PROMPTS as SEMANTIC_TEXT_PROMPTS # New Import
 
 
 def relocalization(frame, keyframes, factor_graph, retrieval_database):
@@ -277,10 +278,37 @@ if __name__ == "__main__":
         if mode == Mode.INIT:
             # Initialize via mono inference, and encoded features neeed for database
             X_init, C_init = mast3r_inference_mono(model, frame)
-            frame.update_pointmap(X_init, C_init)
-            keyframes.append(frame)
+            frame.update_pointmap(X_init, C_init) # Populates X_canon
+
+            # --- New: Process semantics for the first frame ---
+            print(f"[INFO main.py] Processing semantics for initial frame {frame.frame_id}...")
+            try:
+                # frame.rgb is (1,C,H,W), semantic_processor expects (C,H,W)
+                local_mask, local_map = process_frame_for_semantics(
+                    image_tensor_chw_0_1_rgb=frame.rgb.squeeze(0),
+                    text_prompts_for_clip=SEMANTIC_TEXT_PROMPTS
+                )
+                frame.local_instance_mask = local_mask.to(device if local_mask is not None else None)
+                frame.local_id_to_class_label_map = local_map
+                # global_instance_ids for this first frame will be set by FrameTracker.track
+                # when it handles the "first keyframe" case.
+            except Exception as e_semantic_init:
+                print(f"[ERROR main.py] Semantic processing failed for initial frame {frame.frame_id}: {e_semantic_init}")
+                frame.local_instance_mask = None
+                frame.local_id_to_class_label_map = None
+            # --- End Semantic Processing for first frame ---
+
+            # The FrameTracker.track method will be called for this frame (as mode becomes TRACKING).
+            # It will handle initializing global_instance_ids for this first keyframe.
+            # However, the first keyframe is usually added directly without full tracking.
+            # Let's ensure this frame is processed by tracker to set its global_instance_ids.
+            # The original code adds to keyframes THEN sets mode to TRACKING.
+            # The tracker logic for first frame / no keyframe needs to be robust.
+            # For now, we assume the tracker.track call (even if simplified for first KF) will populate global_instance_ids.
+
+            keyframes.append(frame) # Add after semantic processing
             states.queue_global_optimization(len(keyframes) - 1)
-            states.set_mode(Mode.TRACKING)
+            states.set_mode(Mode.TRACKING) # Important: set mode AFTER potentially calling tracker for first frame processing if needed
             states.set_frame(frame)
             i += 1
             continue

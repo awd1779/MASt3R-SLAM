@@ -195,26 +195,14 @@ def create_frame(i, img, T_WC, img_size=512, device="cuda:0"):
     # semantic_processor expects CHW, 0-1, RGB. `frame.rgb.squeeze(0)` should be suitable.
     # Note: The device of frame.rgb is already 'device'
 
-    # The TEXT_PROMPTS from semantic_processor are used by default if not overridden.
-    # User will need to configure TEXT_PROMPTS in semantic_processor.py
-    try:
-        # print(f"[DEBUG create_frame] Calling semantic processor for frame {i} with image shape {rgb.squeeze(0).shape}")
-        # Use the local 'rgb' tensor here, not 'frame.rgb' as 'frame' object isn't fully formed in this scope for this specific attribute yet.
-        # 'rgb' is (1, C, H, W), so squeeze batch dim.
-        local_mask, local_map = process_frame_for_semantics(
-            image_tensor_chw_0_1_rgb=rgb.squeeze(0),
-            text_prompts_for_clip=SEMANTIC_TEXT_PROMPTS
-        )
-        frame.local_instance_mask = local_mask.to(device) # Ensure it's on the correct device
-        frame.local_id_to_class_label_map = local_map
-        # print(f"[DEBUG create_frame] Semantic processing done for frame {i}. Mask unique: {torch.unique(local_mask)}, Map: {local_map}")
-    except Exception as e_semantic:
-        print(f"[ERROR create_frame] Semantic processing failed for frame {i}: {e_semantic}")
-        # Frame will proceed without semantic info if this fails
-        frame.local_instance_mask = None
-        frame.local_id_to_class_label_map = None
+    # --- Semantic Processing is now deferred ---
+    # The call to process_frame_for_semantics has been removed from create_frame.
+    # It will now be called conditionally in FrameTracker.track (for new keyframes)
+    # or in main.py (for the very first frame).
+    # Frame objects will be initialized with local_instance_mask=None,
+    # local_id_to_class_label_map=None, and global_instance_ids=None.
 
-    # frame.global_instance_ids will be populated later in FrameTracker.track
+    # frame.global_instance_ids will be populated later in FrameTracker.track or main.py (for first frame)
     return frame
 
 
