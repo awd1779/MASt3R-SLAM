@@ -283,9 +283,9 @@ if __name__ == "__main__":
             # --- New: Process semantics for the first frame ---
             print(f"[INFO main.py] Processing semantics for initial frame {frame.frame_id}...")
             try:
-                # frame.rgb is (1,C,H,W), semantic_processor expects (C,H,W)
+                # frame.img is (1,C,H,W) as assigned in create_frame, semantic_processor expects (C,H,W)
                 local_mask, local_map = process_frame_for_semantics(
-                    image_tensor_chw_0_1_rgb=frame.rgb.squeeze(0),
+                    image_tensor_chw_0_1_rgb=frame.img.squeeze(0), # Changed frame.rgb to frame.img
                     text_prompts_for_clip=SEMANTIC_TEXT_PROMPTS
                 )
                 frame.local_instance_mask = local_mask.to(device if local_mask is not None else None)
