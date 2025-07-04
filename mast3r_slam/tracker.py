@@ -172,7 +172,7 @@ class FrameTracker:
             if K is None and self.keyframes.last_keyframe() is not None: # Fallback if get_intrinsics isn't there but K might be on KF
                  K = self.keyframes.last_keyframe().K
         else:
-        else:
+        
             K = None
 
         # Get poses and point correspondneces and confidences
@@ -239,11 +239,11 @@ class FrameTracker:
             # This is a NEW KEYFRAME
             print(f"[Tracker INFO] Frame {frame.frame_id} designated as new keyframe.")
             # 1. Perform full semantic processing (SAM + CLIP)
-            if frame.rgb is not None: # Ensure image data is available
+            if frame.img is not None: # Ensure image data is available
                 print(f"[Tracker INFO] Running full semantic processing for new keyframe {frame.frame_id}...")
                 try:
                     local_mask, local_map = process_frame_for_semantics(
-                        image_tensor_chw_0_1_rgb=frame.rgb.squeeze(0),
+                        image_tensor_chw_0_1_rgb=frame.img.squeeze(0),
                         text_prompts_for_clip=SEMANTIC_TEXT_PROMPTS
                     )
                     frame.local_instance_mask = local_mask.to(self.device if local_mask is not None else None)

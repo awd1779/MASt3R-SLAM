@@ -8,6 +8,7 @@ import lietorch
 import torch
 import tqdm
 import yaml
+import json # Added for saving semantic map
 from mast3r_slam.global_opt import FactorGraph
 
 from mast3r_slam.config import load_config, config, set_global_config
@@ -76,6 +77,7 @@ def run_backend(cfg, model, states, keyframes, K):
     set_global_config(cfg)
 
     device = keyframes.device
+    model.to(device)
     factor_graph = FactorGraph(model, keyframes, K, device)
     retrieval_database = load_retriever(model)
 
@@ -363,6 +365,14 @@ if __name__ == "__main__":
             last_msg.C_conf_threshold, # Or however this is determined
             global_id_to_name_map=final_global_semantic_map # Pass the populated map
         )
+        # Save the global_id_to_name_map to a JSON file
+        semantic_map_file = save_dir / f"{seq_name}_semantic_map.json"
+        # Convert keys to strings for JSON serialization if they are integers
+        serializable_map = {str(k): v for k, v in final_global_semantic_map.items()}
+        with open(semantic_map_file, 'w') as f:
+            json.dump(serializable_map, f, indent=4)
+        print(f"Saved semantic map to {semantic_map_file}")
+
         eval.save_keyframes(
             save_dir / "keyframes" / seq_name, dataset.timestamps, keyframes
         )

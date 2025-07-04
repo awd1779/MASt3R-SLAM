@@ -9,6 +9,23 @@ from mast3r_slam.lietorch_utils import as_SE3
 from mast3r_slam.config import config
 from plyfile import PlyData, PlyElement
 
+# Define a custom color map for semantic labels (RGB 0-255)
+SEMANTIC_COLOR_MAP = {
+    "background": [50, 50, 50],   # Dark Gray
+    "monitor":    [0, 0, 255],    # Blue
+    "screen":     [0, 0, 200],    # Slightly darker Blue
+    "book":       [255, 0, 0],    # Red
+    "game controller": [0, 255, 0], # Green
+    "chair":      [255, 165, 0],  # Orange
+    "desk":       [128, 0, 128],  # Purple
+    "table":      [255, 255, 0],  # Yellow
+    "cup":        [0, 255, 255],  # Cyan
+    "keyboard":   [255, 0, 255],  # Magenta
+    "mouse":      [100, 100, 0],  # Dark Yellow/Olive
+    "laptop":     [0, 128, 128],  # Teal
+}
+
+
 
 def prepare_savedir(args, dataset):
     save_dir = pathlib.Path("logs")
@@ -140,16 +157,27 @@ def save_reconstruction(savedir, filename, keyframes: SharedKeyframes,
         seg_color_ply_name = f"{filepath_obj.stem}_seg_color.ply"
         print(f"[INFO eval.py] Generating PLY with segmentation colors: {seg_color_ply_name}")
 
-        np.random.seed(42)
-        unique_ids_in_ply = np.unique(labels_global_np)
-        dynamic_rgb_color_map = {label_id: list(np.random.randint(50, 251, size=3))
-                                 for label_id in unique_ids_in_ply if label_id != 0}
-        dynamic_rgb_color_map[0] = [128, 128, 128]
-        default_seg_color_rgb = [30, 30, 30]
-
+        # Use custom semantic color map
         seg_colors_np = np.zeros_like(colors_np)
+        unique_ids_in_ply = np.unique(labels_global_np)
+
+        # Seed for consistent random colors for unmapped labels
+        np.random.seed(42)
+        # Generate a pool of random colors for labels not in SEMANTIC_COLOR_MAP
+        random_color_pool = {label_id: list(np.random.randint(50, 251, size=3))
+                             for label_id in unique_ids_in_ply}
+
         for label_id_val in unique_ids_in_ply:
-            color_rgb = dynamic_rgb_color_map.get(label_id_val, default_seg_color_rgb)
+            class_label = final_label_map_for_ply_comments.get(label_id_val, "unknown")
+            
+            # Prioritize SEMANTIC_COLOR_MAP, then random_color_pool, then a default fallback
+            if class_label in SEMANTIC_COLOR_MAP:
+                color_rgb = SEMANTIC_COLOR_MAP[class_label]
+            elif label_id_val in random_color_pool:
+                color_rgb = random_color_pool[label_id_val]
+            else:
+                color_rgb = [30, 30, 30] # Fallback dark gray
+
             seg_colors_np[labels_global_np == label_id_val] = color_rgb
 
         seg_color_filename_path = savedir / seg_color_ply_name
@@ -183,15 +211,31 @@ def save_keyframes(savedir, timestamps, keyframes: SharedKeyframes):
             colored_mask_img = np.zeros((h, w, 3), dtype=np.uint8)
 
             unique_labels_in_mask = np.unique(mask_tensor)
+            # Use custom semantic color map for local masks
+            # Need to map local_id to class_label first, then to color
+            # This requires the local_id_to_class_label_map from the frame
+            # However, the local_instance_mask only has local_ids, not global_ids.
+            # The frame.local_id_to_class_label_map is what we need.
+
+            # Generate a pool of random colors for labels not in SEMANTIC_COLOR_MAP
+            # Seed for consistent random colors for unmapped labels
             np.random.seed(42)
-            dynamic_bgr_color_map_mask = {
-                label_id: list(np.random.randint(50, 251, size=3).astype(np.uint8))
-                for label_id in unique_labels_in_mask if label_id != 0
-            }
-            dynamic_bgr_color_map_mask[0] = [128,128,128]
+            random_color_pool_bgr = {label_id: list(np.random.randint(50, 251, size=3)[::-1]) # RGB to BGR
+                                     for label_id in unique_labels_in_mask}
 
             for label_id_val in unique_labels_in_mask:
-                color_bgr = dynamic_bgr_color_map_mask.get(label_id_val, default_mask_color_bgr)
+                class_label = "unknown" # Default if map is None or label not found
+                if keyframe.local_id_to_class_label_map is not None:
+                    class_label = keyframe.local_id_to_class_label_map.get(label_id_val, "unknown")
+
+                if class_label in SEMANTIC_COLOR_MAP:
+                    color_rgb = SEMANTIC_COLOR_MAP[class_label]
+                    color_bgr = color_rgb[::-1] # Convert RGB to BGR for OpenCV
+                elif label_id_val in random_color_pool_bgr:
+                    color_bgr = random_color_pool_bgr[label_id_val]
+                else:
+                    color_bgr = [30, 30, 30] # Fallback dark gray (BGR)
+
                 colored_mask_img[mask_tensor == label_id_val] = color_bgr
 
             mask_filename = mask_savedir / f"{t}_local_mask.png"

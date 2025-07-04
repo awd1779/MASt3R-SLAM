@@ -31,22 +31,23 @@ _clip_text_tokenizer = None # To store the tokenizer
 _clip_text_features_tensor = None
 _clip_text_prompts_cache = []
 
-INSTANCE_MODEL_CHECKPOINT_PATH = "checkpoints/sam_vit_b_01ec64.pth"
-INSTANCE_MODEL_TYPE = "vit_b"
+INSTANCE_MODEL_CHECKPOINT_PATH = "checkpoints/sam_vit_h_4b8939.pth"
+INSTANCE_MODEL_TYPE = "vit_h"
 
-CLIP_MODEL_NAME = 'ViT-bigG-14'
-CLIP_PRETRAINED_DATASET = 'laion2b_s39b_b160k'
+CLIP_MODEL_NAME = 'ViT-H-14'
+CLIP_PRETRAINED_DATASET = 'laion2b_s32b_b79k'
 
 TEXT_PROMPTS = [
-    "background", "chair", "desk", "table", "monitor", "person", "plant",
-    "cup", "book", "keyboard", "mouse", "laptop", "screen"
+    "background", "wall", "floor", "ceiling", "chair", "desk", "table", "monitor", "cup", "book", "keyboard", "mouse", "laptop", "screen", "game controller",
+    "shelf", "cabinet", "drawer", "picture", "frame", "plant", "vase", "door", "window", "light", "lamp", "box", "container",
+    "whiteboard", "poster", "painting", "doorway", "archway", "cabinet door"
 ]
 SEMANTIC_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-DEFAULT_SAM_POINTS_PER_SIDE = 16
+DEFAULT_SAM_POINTS_PER_SIDE = 32
 DEFAULT_SAM_PRED_IOU_THRESH = 0.88
 DEFAULT_SAM_STABILITY_SCORE_THRESH = 0.95
-DEFAULT_SAM_MIN_MASK_REGION_AREA = 150
+DEFAULT_SAM_MIN_MASK_REGION_AREA = 50
 
 # --- CLIP Specifics ---
 # We need to know the input resolution for CLIP to resize crops appropriately
