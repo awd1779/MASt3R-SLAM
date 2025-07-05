@@ -288,7 +288,9 @@ if __name__ == "__main__":
                 # frame.img is (1,C,H,W) as assigned in create_frame, semantic_processor expects (C,H,W)
                 local_mask, local_map = process_frame_for_semantics(
                     image_tensor_chw_0_1_rgb=frame.img.squeeze(0), # Changed frame.rgb to frame.img
-                    text_prompts_for_clip=SEMANTIC_TEXT_PROMPTS
+                    text_prompts_for_clip=SEMANTIC_TEXT_PROMPTS,
+                    enable_debug_viz=True,  # Enable debug visualization
+                    frame_id=frame.frame_id
                 )
                 frame.local_instance_mask = local_mask.to(device if local_mask is not None else None)
                 frame.local_id_to_class_label_map = local_map

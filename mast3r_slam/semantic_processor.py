@@ -3,10 +3,16 @@
 Handles per-frame instance segmentation (SAM) and classification (OpenCLIP).
 """
 import torch
+import torchvision
 import numpy as np
 import cv2
 from PIL import Image
 import pathlib
+import os
+import json
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+from datetime import datetime
 
 # --- Attempt to import SAM specific modules ---
 try:
@@ -34,13 +40,28 @@ _clip_text_prompts_cache = []
 INSTANCE_MODEL_CHECKPOINT_PATH = "checkpoints/sam_vit_h_4b8939.pth"
 INSTANCE_MODEL_TYPE = "vit_h"
 
-CLIP_MODEL_NAME = 'ViT-H-14'
-CLIP_PRETRAINED_DATASET = 'laion2b_s32b_b79k'
+CLIP_MODEL_NAME = 'ViT-B-32'
+CLIP_PRETRAINED_DATASET = 'laion2b_e16'
 
 TEXT_PROMPTS = [
-    "background", "wall", "floor", "ceiling", "chair", "desk", "table", "monitor", "cup", "book", "keyboard", "mouse", "laptop", "screen", "game controller",
-    "shelf", "cabinet", "drawer", "picture", "frame", "plant", "vase", "door", "window", "light", "lamp", "box", "container",
-    "whiteboard", "poster", "painting", "doorway", "archway", "cabinet door"
+    # Background and structural
+    "background", "wall surface", "wooden floor", "white ceiling", "room corner", "empty space",
+    
+    # Furniture - more descriptive
+    "office chair", "wooden chair", "computer desk", "wooden table", "dining table", "work surface",
+    "bookshelf", "storage cabinet", "file drawer", "furniture leg", 
+    
+    # Electronics - specific
+    "computer monitor", "laptop computer", "desktop computer", "television screen", "electronic display",
+    "computer keyboard", "computer mouse", "desktop computer", "electronic device",
+    
+    # Objects - descriptive  
+    "coffee cup", "drinking mug", "book spine", "stack of books", "paper document",
+    "picture frame", "wall art", "decorative object", "storage box", "container object",
+    
+    # Room elements - specific
+    "interior door", "glass window", "ceiling light", "desk lamp", "table lamp", "light fixture",
+    "light switch", "wall outlet", "door frame", "window frame"
 ]
 SEMANTIC_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -54,6 +75,33 @@ DEFAULT_SAM_MIN_MASK_REGION_AREA = 50
 # For ViT-bigG-14, it's typically 224, but OpenCLIP's preprocess handles it.
 # We will extract the resize and normalize components from CLIP's preprocess.
 _clip_input_resolution = (224, 224) # Default, will be updated from loaded model if possible
+
+# --- Debug Visualization Configuration ---
+DEBUG_VISUALIZATION = True  # Global flag to enable/disable debug output
+DEBUG_OUTPUT_DIR = "debug_semantic_output"  # Directory for debug outputs
+DEBUG_SAVE_SAM_MASKS = True  # Save SAM mask overlays
+DEBUG_SAVE_CLIP_CROPS = True  # Save individual CLIP input crops
+DEBUG_SAVE_CLASSIFICATION_RESULTS = True  # Save classification summary
+DEBUG_MAX_MASKS_TO_VISUALIZE = 20  # Limit number of masks to visualize (performance)
+
+def enable_debug_visualization(enable: bool = True, output_dir: str = None):
+    """Enable or disable debug visualization globally."""
+    global DEBUG_VISUALIZATION, DEBUG_OUTPUT_DIR
+    DEBUG_VISUALIZATION = enable
+    if output_dir is not None:
+        DEBUG_OUTPUT_DIR = output_dir
+    print(f"[DEBUG] Semantic processor debug visualization: {'ENABLED' if enable else 'DISABLED'}")
+    if enable:
+        print(f"[DEBUG] Output directory: {DEBUG_OUTPUT_DIR}")
+
+def set_debug_options(save_sam: bool = True, save_clips: bool = True, 
+                     save_classifications: bool = True, max_masks: int = 20):
+    """Configure debug visualization options."""
+    global DEBUG_SAVE_SAM_MASKS, DEBUG_SAVE_CLIP_CROPS, DEBUG_SAVE_CLASSIFICATION_RESULTS, DEBUG_MAX_MASKS_TO_VISUALIZE
+    DEBUG_SAVE_SAM_MASKS = save_sam
+    DEBUG_SAVE_CLIP_CROPS = save_clips
+    DEBUG_SAVE_CLASSIFICATION_RESULTS = save_classifications
+    DEBUG_MAX_MASKS_TO_VISUALIZE = max_masks
 
 
 def load_instance_segmentation_model(checkpoint_path: str = INSTANCE_MODEL_CHECKPOINT_PATH,
@@ -172,10 +220,286 @@ def get_tensor_crop_from_mask(image_chw_0_1_rgb: torch.Tensor, binary_mask_hw: t
         ).squeeze(0)
     return cropped_tensor # Still in 0-1 range, RGB
 
+def create_debug_output_dir(frame_id: int = None) -> pathlib.Path:
+    """Create organized debug output directory structure."""
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if frame_id is not None:
+        debug_dir = pathlib.Path(DEBUG_OUTPUT_DIR) / f"frame_{frame_id:06d}_{timestamp}"
+    else:
+        debug_dir = pathlib.Path(DEBUG_OUTPUT_DIR) / f"session_{timestamp}"
+    
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    (debug_dir / "sam_masks").mkdir(exist_ok=True)
+    (debug_dir / "clip_crops").mkdir(exist_ok=True)
+    (debug_dir / "classifications").mkdir(exist_ok=True)
+    return debug_dir
+
+def save_sam_masks_visualization(image_hwc_uint8_rgb: np.ndarray, sam_masks_data_list: list, 
+                                output_dir: pathlib.Path, frame_id: int = 0, 
+                                tensor_crops_for_clip: list = None, 
+                                predicted_classes: list = None, confidence_scores: list = None):
+    """Save SAM mask visualizations with overlays."""
+    if not DEBUG_SAVE_SAM_MASKS or not sam_masks_data_list:
+        return
+    
+    # Create overlay image with all masks
+    overlay_img = image_hwc_uint8_rgb.copy()
+    colors = plt.cm.tab20(np.linspace(0, 1, min(len(sam_masks_data_list), 20)))
+    
+    # Create combined mask overlay
+    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
+    axes = axes.flatten()
+    
+    # Original image
+    axes[0].imshow(image_hwc_uint8_rgb)
+    axes[0].set_title("Original Image")
+    axes[0].axis('off')
+    
+    # All masks overlay
+    for i, mask_data in enumerate(sam_masks_data_list[:DEBUG_MAX_MASKS_TO_VISUALIZE]):
+        mask = mask_data['segmentation']
+        color = (np.array(colors[i % len(colors)][:3]) * 255).astype(np.uint8)
+        overlay_img[mask] = overlay_img[mask] * 0.6 + color * 0.4
+    
+    axes[1].imshow(overlay_img)
+    axes[1].set_title(f"All SAM Masks Overlay ({len(sam_masks_data_list)} masks)")
+    axes[1].axis('off')
+    
+    # Largest masks individual view
+    if len(sam_masks_data_list) > 0:
+        largest_mask = sam_masks_data_list[0]['segmentation']
+        axes[2].imshow(largest_mask, cmap='gray')
+        axes[2].set_title(f"Largest Mask (area: {sam_masks_data_list[0]['area']})")
+        axes[2].axis('off')
+    
+    # Mask count histogram
+    areas = [mask['area'] for mask in sam_masks_data_list]
+    axes[3].hist(areas, bins=20, alpha=0.7)
+    axes[3].set_title(f"Mask Area Distribution")
+    axes[3].set_xlabel("Area (pixels)")
+    axes[3].set_ylabel("Count")
+    
+    plt.tight_layout()
+    plt.savefig(output_dir / "sam_masks" / f"sam_overview_frame_{frame_id:06d}.png", 
+                dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    # Save individual masks with CLIP crops
+    for i, mask_data in enumerate(sam_masks_data_list[:DEBUG_MAX_MASKS_TO_VISUALIZE]):
+        mask = mask_data['segmentation']
+        area = mask_data['area']
+        
+        # Check if we have corresponding CLIP data
+        has_clip_data = (tensor_crops_for_clip is not None and i < len(tensor_crops_for_clip) and
+                        predicted_classes is not None and i < len(predicted_classes) and
+                        confidence_scores is not None and i < len(confidence_scores))
+        
+        # Create individual mask visualization with or without CLIP crop
+        if has_clip_data:
+            fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(12, 10))
+        else:
+            fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
+        
+        # Original region
+        masked_img = image_hwc_uint8_rgb.copy()
+        masked_img[~mask] = masked_img[~mask] * 0.3  # Dim non-mask areas
+        ax1.imshow(masked_img)
+        ax1.set_title(f"Mask {i:02d} - Highlighted Region")
+        ax1.axis('off')
+        
+        # Binary mask
+        ax2.imshow(mask, cmap='gray')
+        ax2.set_title(f"Binary Mask (area: {area})")
+        ax2.axis('off')
+        
+        # Mask boundary overlay
+        boundary_img = image_hwc_uint8_rgb.copy()
+        contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(boundary_img, contours, -1, (255, 0, 0), 2)
+        ax3.imshow(boundary_img)
+        ax3.set_title(f"Mask Boundary")
+        ax3.axis('off')
+        
+        # Add CLIP crop if available
+        if has_clip_data:
+            crop_tensor = tensor_crops_for_clip[i]
+            crop_np = crop_tensor.permute(1, 2, 0).cpu().numpy()
+            crop_np = np.clip(crop_np, 0, 1)
+            
+            predicted_class = predicted_classes[i]
+            confidence = confidence_scores[i]
+            
+            ax4.imshow(crop_np)
+            ax4.set_title(f"CLIP Crop\nPredicted: {predicted_class}\nConfidence: {confidence:.2f}")
+            ax4.axis('off')
+        
+        plt.tight_layout()
+        plt.savefig(output_dir / "sam_masks" / f"mask_{i:02d}_area_{area}_frame_{frame_id:06d}.png", 
+                    dpi=100, bbox_inches='tight')
+        plt.close()
+
+def save_clip_crops_visualization(tensor_crops_for_clip: list, original_image_tensor: torch.Tensor,
+                                 output_dir: pathlib.Path, frame_id: int = 0):
+    """Save CLIP input crops for inspection."""
+    if not DEBUG_SAVE_CLIP_CROPS or not tensor_crops_for_clip:
+        return
+    
+    # Save all crops in a grid
+    n_crops = len(tensor_crops_for_clip)
+    cols = min(5, n_crops)
+    rows = (n_crops + cols - 1) // cols
+    
+    fig, axes = plt.subplots(rows, cols, figsize=(cols*3, rows*3))
+    if rows == 1 and cols == 1:
+        axes = [axes]
+    elif rows == 1 or cols == 1:
+        axes = axes.flatten()
+    else:
+        axes = axes.flatten()
+    
+    for i, crop_tensor in enumerate(tensor_crops_for_clip[:DEBUG_MAX_MASKS_TO_VISUALIZE]):
+        if i < len(axes):
+            # Convert tensor back to displayable format
+            crop_np = crop_tensor.permute(1, 2, 0).cpu().numpy()
+            crop_np = np.clip(crop_np, 0, 1)  # Ensure 0-1 range
+            
+            axes[i].imshow(crop_np)
+            axes[i].set_title(f"Crop {i:02d}")
+            axes[i].axis('off')
+    
+    # Hide unused subplots
+    for i in range(len(tensor_crops_for_clip), len(axes)):
+        axes[i].axis('off')
+    
+    plt.tight_layout()
+    plt.savefig(output_dir / "clip_crops" / f"clip_crops_grid_frame_{frame_id:06d}.png", 
+                dpi=100, bbox_inches='tight')
+    plt.close()
+    
+    # Save individual crops with metadata
+    for i, crop_tensor in enumerate(tensor_crops_for_clip[:DEBUG_MAX_MASKS_TO_VISUALIZE]):
+        crop_np = crop_tensor.permute(1, 2, 0).cpu().numpy()
+        crop_np = np.clip(crop_np, 0, 1)
+        
+        plt.figure(figsize=(6, 6))
+        plt.imshow(crop_np)
+        plt.title(f"CLIP Input Crop {i:02d}\nSize: {crop_tensor.shape}")
+        plt.axis('off')
+        plt.savefig(output_dir / "clip_crops" / f"crop_{i:02d}_frame_{frame_id:06d}.png", 
+                    dpi=100, bbox_inches='tight')
+        plt.close()
+
+def save_classification_results(segment_info_for_classification: list, best_scores: torch.Tensor,
+                               best_indices: torch.Tensor, cached_prompts_list: list,
+                               original_image_hwc: np.ndarray, output_dir: pathlib.Path, 
+                               frame_id: int = 0):
+    """Save classification results with confidence scores and visual summary."""
+    if not DEBUG_SAVE_CLASSIFICATION_RESULTS or not segment_info_for_classification:
+        return
+    
+    # Create classification summary
+    classification_data = []
+    
+    # Create visualization
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    axes = axes.flatten()
+    
+    # Original image
+    axes[0].imshow(original_image_hwc)
+    axes[0].set_title("Original Image")
+    axes[0].axis('off')
+    
+    # Classification confidence histogram
+    confidence_scores = best_scores.cpu().numpy()
+    axes[1].hist(confidence_scores, bins=20, alpha=0.7, color='skyblue')
+    axes[1].set_title("Classification Confidence Distribution")
+    axes[1].set_xlabel("Confidence Score")
+    axes[1].set_ylabel("Count")
+    
+    # Class distribution
+    predicted_classes = [cached_prompts_list[idx.item()] for idx in best_indices]
+    unique_classes, counts = np.unique(predicted_classes, return_counts=True)
+    axes[2].bar(range(len(unique_classes)), counts, color='lightcoral')
+    axes[2].set_xticks(range(len(unique_classes)))
+    axes[2].set_xticklabels(unique_classes, rotation=45, ha='right')
+    axes[2].set_title("Predicted Class Distribution")
+    axes[2].set_ylabel("Count")
+    
+    # Confidence vs class scatter
+    class_indices = [list(unique_classes).index(cls) for cls in predicted_classes]
+    axes[3].scatter(class_indices, confidence_scores, alpha=0.6, color='green')
+    axes[3].set_xticks(range(len(unique_classes)))
+    axes[3].set_xticklabels(unique_classes, rotation=45, ha='right')
+    axes[3].set_title("Confidence vs Predicted Class")
+    axes[3].set_ylabel("Confidence Score")
+    
+    # Top confident predictions
+    top_k = min(10, len(confidence_scores))
+    top_indices = np.argsort(confidence_scores)[-top_k:][::-1]
+    top_classes = [predicted_classes[i] for i in top_indices]
+    top_scores = [confidence_scores[i] for i in top_indices]
+    
+    axes[4].barh(range(len(top_classes)), top_scores, color='gold')
+    axes[4].set_yticks(range(len(top_classes)))
+    axes[4].set_yticklabels([f"{cls} (seg {top_indices[i]})" for i, cls in enumerate(top_classes)])
+    axes[4].set_title(f"Top {top_k} Most Confident Predictions")
+    axes[4].set_xlabel("Confidence Score")
+    
+    # Low confidence predictions
+    low_indices = np.argsort(confidence_scores)[:top_k]
+    low_classes = [predicted_classes[i] for i in low_indices]
+    low_scores = [confidence_scores[i] for i in low_indices]
+    
+    axes[5].barh(range(len(low_classes)), low_scores, color='orange')
+    axes[5].set_yticks(range(len(low_classes)))
+    axes[5].set_yticklabels([f"{cls} (seg {low_indices[i]})" for i, cls in enumerate(low_classes)])
+    axes[5].set_title(f"Lowest {top_k} Confidence Predictions")
+    axes[5].set_xlabel("Confidence Score")
+    
+    plt.tight_layout()
+    plt.savefig(output_dir / "classifications" / f"classification_summary_frame_{frame_id:06d}.png", 
+                dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    # Save detailed classification data
+    for i, seg_info in enumerate(segment_info_for_classification):
+        classification_data.append({
+            "segment_id": i,
+            "predicted_class": cached_prompts_list[best_indices[i].item()],
+            "confidence_score": float(best_scores[i].item()),
+            "mask_area": int(seg_info['mask_torch'].sum().item())
+        })
+    
+    # Save metadata as JSON
+    metadata = {
+        "frame_id": frame_id,
+        "total_segments": len(segment_info_for_classification),
+        "mean_confidence": float(np.mean(confidence_scores)),
+        "std_confidence": float(np.std(confidence_scores)),
+        "available_classes": cached_prompts_list,
+        "classifications": classification_data
+    }
+    
+    with open(output_dir / "classifications" / f"classification_data_frame_{frame_id:06d}.json", 'w') as f:
+        json.dump(metadata, f, indent=2)
+
 def process_frame_for_semantics(image_tensor_chw_0_1_rgb: torch.Tensor,
-                                text_prompts_for_clip: list = None):
+                                text_prompts_for_clip: list = None,
+                                enable_debug_viz: bool = False,
+                                frame_id: int = 0):
     global _clip_input_resolution # Use the resolution determined at model load
     effective_prompts = text_prompts_for_clip if text_prompts_for_clip is not None else TEXT_PROMPTS
+    
+    # CRITICAL FIX: Check if input tensor is in MASt3R/DUSt3R normalized range [-1, 1]
+    # and convert back to [0, 1] range for proper semantic processing
+    if image_tensor_chw_0_1_rgb.min() < -0.1:  # Likely in [-1, 1] range from ImgNorm
+        print(f"[DEBUG SemanticProcessor] Input tensor in [-1,1] range, converting to [0,1]")
+        print(f"   Before: range=[{image_tensor_chw_0_1_rgb.min():.3f}, {image_tensor_chw_0_1_rgb.max():.3f}]")
+        # Convert from [-1, 1] to [0, 1]: (x + 1) / 2
+        image_tensor_chw_0_1_rgb = (image_tensor_chw_0_1_rgb + 1.0) / 2.0
+        print(f"   After: range=[{image_tensor_chw_0_1_rgb.min():.3f}, {image_tensor_chw_0_1_rgb.max():.3f}]")
+    else:
+        print(f"[DEBUG SemanticProcessor] Input tensor appears to be in [0,1] range: [{image_tensor_chw_0_1_rgb.min():.3f}, {image_tensor_chw_0_1_rgb.max():.3f}]")
 
     sam_generator = load_instance_segmentation_model(device=SEMANTIC_DEVICE) # Uses defaults or last set params
     clip_model, clip_img_val_preprocess, text_features_tensor, cached_prompts_list = load_clip_model(
@@ -200,20 +524,43 @@ def process_frame_for_semantics(image_tensor_chw_0_1_rgb: torch.Tensor,
 
     sam_masks_data_list = sorted(sam_masks_data_list, key=lambda x: x['area'], reverse=True)
 
+    # --- Debug Visualization: SAM Masks (Basic) ---
+    debug_output_dir = None
+    if enable_debug_viz and DEBUG_VISUALIZATION:
+        debug_output_dir = create_debug_output_dir(frame_id)
+        print(f"[DEBUG] Saving SAM visualization for frame {frame_id} to {debug_output_dir}")
+        # Save basic SAM visualization first (without CLIP data)
+        save_sam_masks_visualization(image_hwc_uint8_rgb, sam_masks_data_list, debug_output_dir, frame_id)
+
     tensor_crops_for_clip = []
     segment_info_for_classification = []
 
     for mask_data in sam_masks_data_list:
         segment_torch_bool = torch.from_numpy(mask_data['segmentation'].astype(bool)).to(device=SEMANTIC_DEVICE)
-        # Get tensor crop, resized to CLIP's expected input size
-        tensor_crop = get_tensor_crop_from_mask(image_tensor_chw_0_1_rgb, segment_torch_bool, output_size=_clip_input_resolution)
-        if tensor_crop is not None:
-            tensor_crops_for_clip.append(tensor_crop)
+        # Try highlight method (performed best in tests)
+        # Create full image with highlighted region
+        masked_highlight = image_tensor_chw_0_1_rgb.clone()
+        masked_highlight[:, ~segment_torch_bool] *= 0.3  # Dim non-mask areas
+        
+        # Resize to CLIP input size
+        import torch.nn.functional as F
+        masked_highlight_resized = F.interpolate(
+            masked_highlight.unsqueeze(0), size=_clip_input_resolution, 
+            mode='bilinear', align_corners=False
+        ).squeeze(0)
+        
+        if masked_highlight_resized is not None:
+            tensor_crops_for_clip.append(masked_highlight_resized)
             segment_info_for_classification.append({'mask_torch': segment_torch_bool})
 
     if not tensor_crops_for_clip:
         # print(f"[INFO SemanticProcessor] No valid tensor crops from SAM masks for CLIP.")
         return local_instance_mask, local_id_to_class_label_map
+
+    # --- Debug Visualization: CLIP Crops ---
+    if enable_debug_viz and DEBUG_VISUALIZATION and debug_output_dir is not None:
+        print(f"[DEBUG] Saving CLIP crops visualization for frame {frame_id}")
+        save_clip_crops_visualization(tensor_crops_for_clip, image_tensor_chw_0_1_rgb, debug_output_dir, frame_id)
 
     # Batch preprocess (normalization mainly, as resize is done, and ToTensor is implicit)
     # The _clip_image_preprocess_val is a torchvision.transforms.Compose.
@@ -223,50 +570,102 @@ def process_frame_for_semantics(image_tensor_chw_0_1_rgb: torch.Tensor,
     normalize_transform = None
     if hasattr(clip_img_val_preprocess, 'transforms'):
         for t in clip_img_val_preprocess.transforms:
-            if isinstance(t, torch.nn.modules.module.Module) and "Normalize" in t.__class__.__name__: # More robust check
+            # Check for torchvision Normalize transform
+            if hasattr(t, 'mean') and hasattr(t, 'std') and hasattr(t, '__call__'):
+                # This is likely a Normalize transform
                 normalize_transform = t
+                print(f"[DEBUG SemanticProcessor] Found Normalize transform: mean={t.mean}, std={t.std}")
                 break
-            elif isinstance(t, Image.Image) and hasattr(t, 'mean') and hasattr(t, 'std') : # For older torchvision Normalize
-                normalize_transform = t # it is the Normalize object itself
-                break
-
 
     if not normalize_transform:
-        print("[Warning SemanticProcessor] Could not find Normalize transform in CLIP preprocess. Using default imagenet stats.")
-        # Fallback to default ImageNet normalization if not found
-        normalize_transform = torch.nn.Sequential( # Dummy sequential to have a .mean and .std
-            torchvision.transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
-        ).to(SEMANTIC_DEVICE)
+        print("[Warning SemanticProcessor] Could not find Normalize transform in CLIP preprocess. Using ImageNet stats for better compatibility.")
+        # Many CLIP models work better with ImageNet normalization
+        # Try ImageNet stats first: mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        normalize_transform = torchvision.transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], 
+            std=[0.229, 0.224, 0.225]
+        )
 
 
     try:
         # Stack crops into a batch. They are already C,H_clip,W_clip and 0-1 range.
         batched_image_tensors = torch.stack(tensor_crops_for_clip) # B, C, H_clip, W_clip
+        print(f"[DEBUG SemanticProcessor] Batched tensors shape: {batched_image_tensors.shape}, range: [{batched_image_tensors.min():.3f}, {batched_image_tensors.max():.3f}]")
+        
+        # Ensure tensors are on correct device for normalization
+        if hasattr(normalize_transform, 'mean'):
+            # Move normalize transform to same device as tensors
+            if hasattr(normalize_transform.mean, 'device'):
+                if normalize_transform.mean.device != batched_image_tensors.device:
+                    normalize_transform = normalize_transform.to(batched_image_tensors.device)
+        
         # Apply normalization
         normalized_batched_images = normalize_transform(batched_image_tensors)
+        print(f"[DEBUG SemanticProcessor] Normalized tensors range: [{normalized_batched_images.min():.3f}, {normalized_batched_images.max():.3f}]")
 
     except Exception as e_preproc:
         print(f"[ERROR SemanticProcessor] Batch CLIP tensor preprocessing failed: {e_preproc}")
+        import traceback
+        traceback.print_exc()
         return local_instance_mask, local_id_to_class_label_map
 
     with torch.no_grad():
         batched_image_features = clip_model.encode_image(normalized_batched_images)
         batched_image_features /= batched_image_features.norm(dim=-1, keepdim=True)
+        print(f"[DEBUG SemanticProcessor] Image features shape: {batched_image_features.shape}")
 
     similarity_matrix = (100.0 * batched_image_features @ text_features_tensor.T)
     best_scores, best_indices = similarity_matrix.max(dim=1)
+    
+    # Debug CLIP scores
+    print(f"[DEBUG SemanticProcessor] CLIP similarity matrix shape: {similarity_matrix.shape}")
+    print(f"[DEBUG SemanticProcessor] Best scores range: [{best_scores.min():.2f}, {best_scores.max():.2f}]")
+    print(f"[DEBUG SemanticProcessor] Best scores mean: {best_scores.mean():.2f}")
+    
+    # Show top predictions for first few crops
+    for i in range(min(3, len(best_scores))):
+        top_k = min(5, similarity_matrix.shape[1])
+        top_scores, top_indices = similarity_matrix[i].topk(top_k)
+        print(f"[DEBUG SemanticProcessor] Crop {i} top predictions:")
+        for j in range(top_k):
+            cls = cached_prompts_list[top_indices[j].item()]
+            score = top_scores[j].item()
+            print(f"   {j+1}. {cls}: {score:.2f}")
+
+    # --- Debug Visualization: Classification Results ---
+    if enable_debug_viz and DEBUG_VISUALIZATION and debug_output_dir is not None:
+        print(f"[DEBUG] Saving classification results for frame {frame_id}")
+        save_classification_results(segment_info_for_classification, best_scores, best_indices, 
+                                   cached_prompts_list, image_hwc_uint8_rgb, debug_output_dir, frame_id)
+        
+        # Save enhanced SAM masks with CLIP crops and predictions
+        print(f"[DEBUG] Saving enhanced SAM masks with CLIP crops for frame {frame_id}")
+        predicted_classes = [cached_prompts_list[idx.item()] for idx in best_indices]
+        confidence_scores = [score.item() for score in best_scores]
+        save_sam_masks_visualization(image_hwc_uint8_rgb, sam_masks_data_list, debug_output_dir, frame_id,
+                                   tensor_crops_for_clip, predicted_classes, confidence_scores)
 
     current_local_id_counter = 1
     for i, seg_info in enumerate(segment_info_for_classification):
         class_label = cached_prompts_list[best_indices[i].item()]
-        if class_label != background_label: # Only assign if not classified as background
+        confidence = best_scores[i].item()
+        
+        print(f"[DEBUG] Segment {i}: {class_label} (confidence: {confidence:.2f})")
+        
+        # Assign segments with confidence > threshold, even if classified as background
+        # This helps debug what's happening
+        confidence_threshold = 20.0  # Lower threshold for now to see what's happening
+        if confidence > confidence_threshold:
             segment_torch = seg_info['mask_torch']
             valid_pixels_for_current_id = segment_torch & (local_instance_mask == 0)
             if valid_pixels_for_current_id.any():
                 local_instance_mask[valid_pixels_for_current_id] = current_local_id_counter
                 local_id_to_class_label_map[current_local_id_counter] = class_label
+                print(f"[DEBUG] Assigned {valid_pixels_for_current_id.sum().item()} pixels to local_id {current_local_id_counter} ({class_label})")
                 current_local_id_counter += 1
                 if current_local_id_counter > 255: break
+        else:
+            print(f"[DEBUG] Skipped segment {i} due to low confidence ({confidence:.2f} < {confidence_threshold})")
     return local_instance_mask, local_id_to_class_label_map
 
 if __name__ == '__main__':
@@ -310,7 +709,8 @@ if __name__ == '__main__':
             print("\nProfiling process_frame_for_semantics (1 run)...")
             profiler = cProfile.Profile()
             profiler.enable()
-            local_mask, id_to_label = process_frame_for_semantics(img_tensor, text_prompts_for_clip=TEXT_PROMPTS)
+            local_mask, id_to_label = process_frame_for_semantics(img_tensor, text_prompts_for_clip=TEXT_PROMPTS,
+                                                                 enable_debug_viz=True, frame_id=999)
             profiler.disable()
 
             print("\n--- Test Run Output ---")

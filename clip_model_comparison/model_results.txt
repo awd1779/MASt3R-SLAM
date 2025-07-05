@@ -1,0 +1,30 @@
+CLIP Model Comparison Results
+==================================================
+
+1. ViT-B-32 (laion2b_e16)
+   Average: 28.23, Max: 35.28
+
+2. ViT-B-32 (laion2b_s34b_b79k)
+   Average: 26.80, Max: 33.62
+
+3. ViT-B-16 (openai)
+   Average: 26.20, Max: 30.28
+
+4. ViT-B-32 (openai)
+   Average: 25.67, Max: 30.16
+
+5. ViT-L-14 (laion2b_s32b_b82k)
+   Average: 24.03, Max: 31.84
+
+6. ViT-H-14 (laion2b_s32b_b79k)
+   Average: 23.85, Max: 32.20
+
+7. ViT-B-16 (laion2b_s34b_b88k)
+   Average: 23.57, Max: 31.26
+
+8. ViT-L-14 (openai)
+   Average: 20.81, Max: 25.32
+
+9. RN50 (openai)
+   Average: 19.72, Max: 23.98
+
