@@ -40,48 +40,24 @@ _clip_text_prompts_cache = []
 INSTANCE_MODEL_CHECKPOINT_PATH = "checkpoints/sam_vit_h_4b8939.pth"
 INSTANCE_MODEL_TYPE = "vit_h"
 
-# CLIP Model Selection - Choose based on your GPU resources:
-# Option 1: Best accuracy but slowest (35.56 avg confidence, ~4GB GPU)
-# CLIP_MODEL_NAME = 'ViT-bigG-14'
-# CLIP_PRETRAINED_DATASET = 'laion2b_s39b_b160k'
+CLIP_MODEL_NAME = 'ViT-B-32'
+CLIP_PRETRAINED_DATASET = 'laion2b_e16'
 
-# Option 2: Good balance of speed and accuracy (28.0 avg confidence, ~2.5GB GPU) 
-CLIP_MODEL_NAME = 'ViT-H-14'
-CLIP_PRETRAINED_DATASET = 'laion2b_s32b_b79k'
-
-# Option 3: Fastest with good accuracy (29.1 avg confidence, ~1.5GB GPU) - RECOMMENDED for limited GPU
-# CLIP_MODEL_NAME = 'ViT-B-32'
-# CLIP_PRETRAINED_DATASET = 'laion2b_e16'
-USE_HOVSG_APPROACH = False  # Disable HOV-SG - it makes everything look like "desk"
-HOVSG_MASKED_WEIGHT = 0.8  # Higher weight for masked region (if enabled)
-
-# Alternative configurations:
-# Fast (baseline): CLIP_MODEL_NAME = 'ViT-B-32', CLIP_PRETRAINED_DATASET = 'laion2b_e16' - 4.7ms per crop, 28.04 avg score
-# Balanced: CLIP_MODEL_NAME = 'convnext_xxlarge', CLIP_PRETRAINED_DATASET = 'laion2b_s34b_b82k_augreg_soup' - 11.3ms, 29.59 avg score
 
 # Original prompts
 ORIGINAL_TEXT_PROMPTS = [
-    # Background and structural
     "background", "wall surface", "wooden floor", "white ceiling", "room corner", "empty space",
-    
-    # Furniture - more descriptive
     "office chair", "wooden chair", "computer desk", "wooden table", "dining table", "work surface",
-    "bookshelf", "storage cabinet", "file drawer", "furniture leg", 
-    
-    # Electronics - specific
+    "bookshelf", "storage cabinet", "file drawer", "furniture leg",
     "computer monitor", "laptop computer", "desktop computer", "television screen", "electronic display",
     "computer keyboard", "computer mouse", "electronic device",
-    
-    # Objects - descriptive  
     "coffee cup", "drinking mug", "book spine", "stack of books", "paper document",
     "picture frame", "wall art", "decorative object", "storage box", "container object",
-    
-    # Room elements - specific
     "interior door", "glass window", "ceiling light", "desk lamp", "table lamp", "light fixture",
     "light switch", "wall outlet", "door frame", "window frame"
 ]
 
-# Augmented prompts for better CLIP confidence (+0.93 additional improvement)
+# Augmented prompts for better CLIP confidence
 def create_augmented_prompts(base_prompts):
     """Create augmented text prompts with descriptive variations."""
     augmented = []
@@ -108,8 +84,9 @@ def create_augmented_prompts(base_prompts):
     
     return unique_augmented
 
-# Use augmented prompts for total +8.44 improvement (7.52 from model + 0.93 from prompts)
+# Use augmented prompts by default for +0.8 confidence improvement
 TEXT_PROMPTS = create_augmented_prompts(ORIGINAL_TEXT_PROMPTS)
+
 SEMANTIC_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 DEFAULT_SAM_POINTS_PER_SIDE = 32
@@ -239,28 +216,22 @@ def get_tensor_crop_from_mask(image_chw_0_1_rgb: torch.Tensor, binary_mask_hw: t
     ymin, ymax = torch.where(rows)[0][[0, -1]]
     xmin, xmax = torch.where(cols)[0][[0, -1]]
 
-    # IMPROVED: Add padding around object for context (10% of object size)
-    # This helps CLIP understand the object better (OV-SAM inspired)
-    height = ymax - ymin
-    width = xmax - xmin
-    pad_h = max(5, int(height * 0.1))  # At least 5 pixels, 10% of height
-    pad_w = max(5, int(width * 0.1))   # At least 5 pixels, 10% of width
-    
+    pad = 0 # Keep padding minimal for now, resize will handle final size
     h, w = image_chw_0_1_rgb.shape[1], image_chw_0_1_rgb.shape[2]
-    ymin_pad = max(0, ymin - pad_h); ymax_pad = min(h - 1, ymax + pad_h)
-    xmin_pad = max(0, xmin - pad_w); xmax_pad = min(w - 1, xmax + pad_w)
+    ymin_pad = max(0, ymin - pad); ymax_pad = min(h - 1, ymax + pad)
+    xmin_pad = max(0, xmin - pad); xmax_pad = min(w - 1, xmax + pad)
 
     cropped_tensor = image_chw_0_1_rgb[:, ymin_pad:ymax_pad+1, xmin_pad:xmax_pad+1]
 
     if cropped_tensor.numel() == 0 or cropped_tensor.shape[1] == 0 or cropped_tensor.shape[2] == 0: return None
 
-    # IMPROVED: Apply soft masking - darken background instead of removing
-    # This preserves context while focusing on the object
+    # Apply mask to make background transparent (or black) before resize, helps CLIP focus
+    # Create a 3-channel version of the binary mask for element-wise multiplication
+    # binary_mask_hw is H_crop x W_crop after slicing if we use it directly on cropped_tensor
+    # It's easier to crop the binary mask too:
     cropped_binary_mask = binary_mask_hw[ymin_pad:ymax_pad+1, xmin_pad:xmax_pad+1].unsqueeze(0) # 1, H_c, W_c
-    # Darken background pixels to 30% brightness (not completely black)
-    background_mask = ~cropped_binary_mask
-    cropped_tensor = cropped_tensor.clone()
-    cropped_tensor[:, background_mask[0]] = cropped_tensor[:, background_mask[0]] * 0.3
+    # Mask out non-object pixels - set to 0 (black).
+    # cropped_tensor = cropped_tensor * cropped_binary_mask
 
 
     if output_size: # Resize if an output_size is specified (e.g., CLIP input size)
@@ -442,111 +413,6 @@ def save_clip_crops_visualization(tensor_crops_for_clip: list, original_image_te
                     dpi=100, bbox_inches='tight')
         plt.close()
 
-def save_hovsg_clip_inputs(image_tensor: torch.Tensor, tensor_crops: list, sam_masks: list,
-                          scores: torch.Tensor, indices: torch.Tensor, prompts: list,
-                          output_dir: pathlib.Path, frame_id: int = 0):
-    """Save the images that CLIP looks at in HOV-SG approach."""
-    hovsg_dir = output_dir / "hovsg_clip_inputs"
-    hovsg_dir.mkdir(exist_ok=True)
-    
-    # 1. Save the full image that CLIP sees
-    full_image_resized = torch.nn.functional.interpolate(
-        image_tensor.unsqueeze(0), 
-        size=(224, 224), 
-        mode='bilinear', 
-        align_corners=False
-    ).squeeze(0)
-    
-    full_img_np = full_image_resized.permute(1, 2, 0).cpu().numpy()
-    full_img_np = np.clip(full_img_np, 0, 1)
-    
-    plt.figure(figsize=(6, 6))
-    plt.imshow(full_img_np)
-    plt.title(f"Full Image Input to CLIP (224x224)\nFrame {frame_id}")
-    plt.axis('off')
-    plt.savefig(hovsg_dir / f"full_image_frame_{frame_id:06d}.png", dpi=150, bbox_inches='tight')
-    plt.close()
-    
-    # 2. Save grid of masked regions
-    n_masks = min(len(tensor_crops), 20)  # Limit to first 20
-    if n_masks > 0:
-        cols = min(5, n_masks)
-        rows = (n_masks + cols - 1) // cols
-        
-        fig, axes = plt.subplots(rows, cols, figsize=(cols*4, rows*4))
-        if rows == 1 and cols == 1:
-            axes = [[axes]]
-        elif rows == 1:
-            axes = [axes]
-        
-        for i in range(n_masks):
-            row = i // cols
-            col = i % cols
-            ax = axes[row][col] if rows > 1 else axes[col]
-            
-            # Show the crop
-            crop_np = tensor_crops[i].permute(1, 2, 0).cpu().numpy()
-            crop_np = np.clip(crop_np, 0, 1)
-            ax.imshow(crop_np)
-            
-            # Add prediction and score
-            pred_class = prompts[indices[i].item()]
-            score = scores[i].item()
-            ax.set_title(f"{pred_class}\nScore: {score:.1f}", fontsize=10)
-            ax.axis('off')
-            
-            # Add colored border based on confidence
-            rect = plt.Rectangle((0, 0), crop_np.shape[1]-1, crop_np.shape[0]-1,
-                               fill=False, linewidth=3,
-                               edgecolor='green' if score > 30 else 'yellow' if score > 25 else 'red')
-            ax.add_patch(rect)
-        
-        # Hide unused subplots
-        for i in range(n_masks, rows * cols):
-            row = i // cols
-            col = i % cols
-            axes[row][col].axis('off') if rows > 1 else axes[col].axis('off')
-        
-        plt.suptitle(f"Masked Regions Input to CLIP - Frame {frame_id}", fontsize=14)
-        plt.tight_layout()
-        plt.savefig(hovsg_dir / f"masked_regions_frame_{frame_id:06d}.png", dpi=150, bbox_inches='tight')
-        plt.close()
-    
-    # 3. Save HOV-SG fusion visualization
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
-    
-    # Full image
-    ax1.imshow(full_img_np)
-    ax1.set_title(f"Full Image\n(Weight: {1-HOVSG_MASKED_WEIGHT:.2f})")
-    ax1.axis('off')
-    
-    # Example masked region
-    if len(tensor_crops) > 0:
-        best_idx = scores.argmax().item()
-        crop_np = tensor_crops[best_idx].permute(1, 2, 0).cpu().numpy()
-        crop_np = np.clip(crop_np, 0, 1)
-        ax2.imshow(crop_np)
-        ax2.set_title(f"Best Masked Region\n(Weight: {HOVSG_MASKED_WEIGHT:.2f})")
-        ax2.axis('off')
-    else:
-        ax2.axis('off')
-        ax2.text(0.5, 0.5, "No masks", ha='center', va='center')
-    
-    # Combined result visualization
-    ax3.text(0.1, 0.9, "HOV-SG Feature Fusion", fontsize=16, fontweight='bold', transform=ax3.transAxes)
-    ax3.text(0.1, 0.7, f"Combines:", fontsize=12, transform=ax3.transAxes)
-    ax3.text(0.1, 0.6, f"• {(1-HOVSG_MASKED_WEIGHT)*100:.0f}% Full image context", fontsize=11, transform=ax3.transAxes)
-    ax3.text(0.1, 0.5, f"• {HOVSG_MASKED_WEIGHT*100:.0f}% Masked region detail", fontsize=11, transform=ax3.transAxes)
-    ax3.text(0.1, 0.3, f"Average Score: {scores.mean():.1f}", fontsize=12, fontweight='bold', transform=ax3.transAxes)
-    ax3.axis('off')
-    
-    plt.suptitle(f"HOV-SG Approach Visualization - Frame {frame_id}", fontsize=14)
-    plt.tight_layout()
-    plt.savefig(hovsg_dir / f"hovsg_fusion_frame_{frame_id:06d}.png", dpi=150, bbox_inches='tight')
-    plt.close()
-    
-    print(f"[DEBUG] Saved HOV-SG CLIP inputs to: {hovsg_dir}")
-
 def save_classification_results(segment_info_for_classification: list, best_scores: torch.Tensor,
                                best_indices: torch.Tensor, cached_prompts_list: list,
                                original_image_hwc: np.ndarray, output_dir: pathlib.Path, 
@@ -695,16 +561,20 @@ def process_frame_for_semantics(image_tensor_chw_0_1_rgb: torch.Tensor,
 
     for mask_data in sam_masks_data_list:
         segment_torch_bool = torch.from_numpy(mask_data['segmentation'].astype(bool)).to(device=SEMANTIC_DEVICE)
-        # Use the improved cropping method that focuses on individual objects
-        # This prevents the "everything is desk" problem
-        crop_tensor = get_tensor_crop_from_mask(
-            image_tensor_chw_0_1_rgb, 
-            segment_torch_bool, 
-            output_size=_clip_input_resolution
-        )
+        # Try highlight method (performed best in tests)
+        # Create full image with highlighted region
+        masked_highlight = image_tensor_chw_0_1_rgb.clone()
+        masked_highlight[:, ~segment_torch_bool] *= 0.3  # Dim non-mask areas
         
-        if crop_tensor is not None:
-            tensor_crops_for_clip.append(crop_tensor)
+        # Resize to CLIP input size
+        import torch.nn.functional as F
+        masked_highlight_resized = F.interpolate(
+            masked_highlight.unsqueeze(0), size=_clip_input_resolution, 
+            mode='bilinear', align_corners=False
+        ).squeeze(0)
+        
+        if masked_highlight_resized is not None:
+            tensor_crops_for_clip.append(masked_highlight_resized)
             segment_info_for_classification.append({'mask_torch': segment_torch_bool})
 
     if not tensor_crops_for_clip:
@@ -764,70 +634,17 @@ def process_frame_for_semantics(image_tensor_chw_0_1_rgb: torch.Tensor,
         return local_instance_mask, local_id_to_class_label_map
 
     with torch.no_grad():
-        # Original crop features
         batched_image_features = clip_model.encode_image(normalized_batched_images)
         batched_image_features /= batched_image_features.norm(dim=-1, keepdim=True)
-        
-        # HOV-SG approach: also get full image features
-        if USE_HOVSG_APPROACH:
-            # Resize full image to CLIP size
-            full_image_resized = torch.nn.functional.interpolate(
-                image_tensor_chw_0_1_rgb.unsqueeze(0), 
-                size=(224, 224), 
-                mode='bilinear', 
-                align_corners=False
-            ).squeeze(0)
-            
-            # Normalize full image
-            full_image_norm = normalize_transform(full_image_resized.unsqueeze(0))
-            
-            # Get full image features
-            full_image_features = clip_model.encode_image(full_image_norm)
-            full_image_features /= full_image_features.norm(dim=-1, keepdim=True)
-            
-            # Combine features: weighted average
-            # Expand full_image_features to match batch size
-            full_features_expanded = full_image_features.expand(batched_image_features.shape[0], -1)
-            
-            # Weighted combination
-            batched_image_features = (1 - HOVSG_MASKED_WEIGHT) * full_features_expanded + HOVSG_MASKED_WEIGHT * batched_image_features
-            batched_image_features /= batched_image_features.norm(dim=-1, keepdim=True)
-            
-            print(f"[DEBUG SemanticProcessor] Using HOV-SG approach with weight {HOVSG_MASKED_WEIGHT}")
-        
         print(f"[DEBUG SemanticProcessor] Image features shape: {batched_image_features.shape}")
 
     similarity_matrix = (100.0 * batched_image_features @ text_features_tensor.T)
     best_scores, best_indices = similarity_matrix.max(dim=1)
     
-    # IMPROVED: Calibrate confidence scores for better range
-    # Raw CLIP scores tend to be in a narrow range (20-40)
-    # Expand to a more useful range (0-100) without label-specific biases
-    calibrated_scores = []
-    
-    # Find min and max for adaptive scaling
-    min_score = best_scores.min().item()
-    max_score = best_scores.max().item()
-    
-    for score, idx in zip(best_scores, best_indices):
-        # Adaptive scaling: map [min_score, max_score] to [20, 80]
-        if max_score > min_score:
-            normalized = (score.item() - min_score) / (max_score - min_score)
-            calibrated = 20 + normalized * 60  # Maps to 20-80 range
-        else:
-            calibrated = 50.0  # Default if all scores are the same
-        
-        calibrated_scores.append(calibrated)
-    
-    # Convert back to tensor
-    best_scores_calibrated = torch.tensor(calibrated_scores, device=best_scores.device)
-    
     # Debug CLIP scores
     print(f"[DEBUG SemanticProcessor] CLIP similarity matrix shape: {similarity_matrix.shape}")
     print(f"[DEBUG SemanticProcessor] Best scores range: [{best_scores.min():.2f}, {best_scores.max():.2f}]")
     print(f"[DEBUG SemanticProcessor] Best scores mean: {best_scores.mean():.2f}")
-    print(f"[DEBUG SemanticProcessor] Calibrated scores range: [{min(calibrated_scores):.2f}, {max(calibrated_scores):.2f}]")
-    print(f"[DEBUG SemanticProcessor] Calibrated scores mean: {np.mean(calibrated_scores):.2f}")
     
     # Show top predictions for first few crops
     for i in range(min(3, len(best_scores))):
@@ -845,31 +662,23 @@ def process_frame_for_semantics(image_tensor_chw_0_1_rgb: torch.Tensor,
         save_classification_results(segment_info_for_classification, best_scores, best_indices, 
                                    cached_prompts_list, image_hwc_uint8_rgb, debug_output_dir, frame_id)
         
-        # Save CLIP input images
-        if USE_HOVSG_APPROACH:
-            save_hovsg_clip_inputs(
-                image_tensor_chw_0_1_rgb, tensor_crops_for_clip, sam_masks_data_list,
-                best_scores, best_indices, cached_prompts_list,
-                debug_output_dir, frame_id
-            )
-        
         # Save enhanced SAM masks with CLIP crops and predictions
         print(f"[DEBUG] Saving enhanced SAM masks with CLIP crops for frame {frame_id}")
         predicted_classes = [cached_prompts_list[idx.item()] for idx in best_indices]
-        confidence_scores = calibrated_scores  # Use calibrated scores
+        confidence_scores = [score.item() for score in best_scores]
         save_sam_masks_visualization(image_hwc_uint8_rgb, sam_masks_data_list, debug_output_dir, frame_id,
                                    tensor_crops_for_clip, predicted_classes, confidence_scores)
 
     current_local_id_counter = 1
     for i, seg_info in enumerate(segment_info_for_classification):
         class_label = cached_prompts_list[best_indices[i].item()]
-        confidence = calibrated_scores[i]  # Use calibrated score
+        confidence = best_scores[i].item()
         
         print(f"[DEBUG] Segment {i}: {class_label} (confidence: {confidence:.2f})")
         
         # Assign segments with confidence > threshold, even if classified as background
         # This helps debug what's happening
-        confidence_threshold = 10.0  # Lower threshold after calibration adjustments
+        confidence_threshold = 20.0  # Lower threshold for now to see what's happening
         if confidence > confidence_threshold:
             segment_torch = seg_info['mask_torch']
             valid_pixels_for_current_id = segment_torch & (local_instance_mask == 0)

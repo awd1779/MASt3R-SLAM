@@ -40,18 +40,10 @@ _clip_text_prompts_cache = []
 INSTANCE_MODEL_CHECKPOINT_PATH = "checkpoints/sam_vit_h_4b8939.pth"
 INSTANCE_MODEL_TYPE = "vit_h"
 
-# CLIP Model Selection - Choose based on your GPU resources:
-# Option 1: Best accuracy but slowest (35.56 avg confidence, ~4GB GPU)
-# CLIP_MODEL_NAME = 'ViT-bigG-14'
-# CLIP_PRETRAINED_DATASET = 'laion2b_s39b_b160k'
-
-# Option 2: Good balance of speed and accuracy (28.0 avg confidence, ~2.5GB GPU) 
-CLIP_MODEL_NAME = 'ViT-H-14'
-CLIP_PRETRAINED_DATASET = 'laion2b_s32b_b79k'
-
-# Option 3: Fastest with good accuracy (29.1 avg confidence, ~1.5GB GPU) - RECOMMENDED for limited GPU
-# CLIP_MODEL_NAME = 'ViT-B-32'
-# CLIP_PRETRAINED_DATASET = 'laion2b_e16'
+# Using ViT-bigG-14 for best results (35.56 avg confidence)
+# Disabled HOV-SG approach as it causes everything to be classified as "desk"
+CLIP_MODEL_NAME = 'ViT-bigG-14'
+CLIP_PRETRAINED_DATASET = 'laion2b_s39b_b160k'
 USE_HOVSG_APPROACH = False  # Disable HOV-SG - it makes everything look like "desk"
 HOVSG_MASKED_WEIGHT = 0.8  # Higher weight for masked region (if enabled)
 
@@ -239,28 +231,22 @@ def get_tensor_crop_from_mask(image_chw_0_1_rgb: torch.Tensor, binary_mask_hw: t
     ymin, ymax = torch.where(rows)[0][[0, -1]]
     xmin, xmax = torch.where(cols)[0][[0, -1]]
 
-    # IMPROVED: Add padding around object for context (10% of object size)
-    # This helps CLIP understand the object better (OV-SAM inspired)
-    height = ymax - ymin
-    width = xmax - xmin
-    pad_h = max(5, int(height * 0.1))  # At least 5 pixels, 10% of height
-    pad_w = max(5, int(width * 0.1))   # At least 5 pixels, 10% of width
-    
+    pad = 0 # Keep padding minimal for now, resize will handle final size
     h, w = image_chw_0_1_rgb.shape[1], image_chw_0_1_rgb.shape[2]
-    ymin_pad = max(0, ymin - pad_h); ymax_pad = min(h - 1, ymax + pad_h)
-    xmin_pad = max(0, xmin - pad_w); xmax_pad = min(w - 1, xmax + pad_w)
+    ymin_pad = max(0, ymin - pad); ymax_pad = min(h - 1, ymax + pad)
+    xmin_pad = max(0, xmin - pad); xmax_pad = min(w - 1, xmax + pad)
 
     cropped_tensor = image_chw_0_1_rgb[:, ymin_pad:ymax_pad+1, xmin_pad:xmax_pad+1]
 
     if cropped_tensor.numel() == 0 or cropped_tensor.shape[1] == 0 or cropped_tensor.shape[2] == 0: return None
 
-    # IMPROVED: Apply soft masking - darken background instead of removing
-    # This preserves context while focusing on the object
+    # Apply mask to make background transparent (or black) before resize, helps CLIP focus
+    # Create a 3-channel version of the binary mask for element-wise multiplication
+    # binary_mask_hw is H_crop x W_crop after slicing if we use it directly on cropped_tensor
+    # It's easier to crop the binary mask too:
     cropped_binary_mask = binary_mask_hw[ymin_pad:ymax_pad+1, xmin_pad:xmax_pad+1].unsqueeze(0) # 1, H_c, W_c
-    # Darken background pixels to 30% brightness (not completely black)
-    background_mask = ~cropped_binary_mask
-    cropped_tensor = cropped_tensor.clone()
-    cropped_tensor[:, background_mask[0]] = cropped_tensor[:, background_mask[0]] * 0.3
+    # Mask out non-object pixels - set to 0 (black).
+    # cropped_tensor = cropped_tensor * cropped_binary_mask
 
 
     if output_size: # Resize if an output_size is specified (e.g., CLIP input size)
@@ -695,16 +681,20 @@ def process_frame_for_semantics(image_tensor_chw_0_1_rgb: torch.Tensor,
 
     for mask_data in sam_masks_data_list:
         segment_torch_bool = torch.from_numpy(mask_data['segmentation'].astype(bool)).to(device=SEMANTIC_DEVICE)
-        # Use the improved cropping method that focuses on individual objects
-        # This prevents the "everything is desk" problem
-        crop_tensor = get_tensor_crop_from_mask(
-            image_tensor_chw_0_1_rgb, 
-            segment_torch_bool, 
-            output_size=_clip_input_resolution
-        )
+        # Try highlight method (performed best in tests)
+        # Create full image with highlighted region
+        masked_highlight = image_tensor_chw_0_1_rgb.clone()
+        masked_highlight[:, ~segment_torch_bool] *= 0.3  # Dim non-mask areas
         
-        if crop_tensor is not None:
-            tensor_crops_for_clip.append(crop_tensor)
+        # Resize to CLIP input size
+        import torch.nn.functional as F
+        masked_highlight_resized = F.interpolate(
+            masked_highlight.unsqueeze(0), size=_clip_input_resolution, 
+            mode='bilinear', align_corners=False
+        ).squeeze(0)
+        
+        if masked_highlight_resized is not None:
+            tensor_crops_for_clip.append(masked_highlight_resized)
             segment_info_for_classification.append({'mask_torch': segment_torch_bool})
 
     if not tensor_crops_for_clip:
@@ -800,34 +790,10 @@ def process_frame_for_semantics(image_tensor_chw_0_1_rgb: torch.Tensor,
     similarity_matrix = (100.0 * batched_image_features @ text_features_tensor.T)
     best_scores, best_indices = similarity_matrix.max(dim=1)
     
-    # IMPROVED: Calibrate confidence scores for better range
-    # Raw CLIP scores tend to be in a narrow range (20-40)
-    # Expand to a more useful range (0-100) without label-specific biases
-    calibrated_scores = []
-    
-    # Find min and max for adaptive scaling
-    min_score = best_scores.min().item()
-    max_score = best_scores.max().item()
-    
-    for score, idx in zip(best_scores, best_indices):
-        # Adaptive scaling: map [min_score, max_score] to [20, 80]
-        if max_score > min_score:
-            normalized = (score.item() - min_score) / (max_score - min_score)
-            calibrated = 20 + normalized * 60  # Maps to 20-80 range
-        else:
-            calibrated = 50.0  # Default if all scores are the same
-        
-        calibrated_scores.append(calibrated)
-    
-    # Convert back to tensor
-    best_scores_calibrated = torch.tensor(calibrated_scores, device=best_scores.device)
-    
     # Debug CLIP scores
     print(f"[DEBUG SemanticProcessor] CLIP similarity matrix shape: {similarity_matrix.shape}")
     print(f"[DEBUG SemanticProcessor] Best scores range: [{best_scores.min():.2f}, {best_scores.max():.2f}]")
     print(f"[DEBUG SemanticProcessor] Best scores mean: {best_scores.mean():.2f}")
-    print(f"[DEBUG SemanticProcessor] Calibrated scores range: [{min(calibrated_scores):.2f}, {max(calibrated_scores):.2f}]")
-    print(f"[DEBUG SemanticProcessor] Calibrated scores mean: {np.mean(calibrated_scores):.2f}")
     
     # Show top predictions for first few crops
     for i in range(min(3, len(best_scores))):
@@ -856,20 +822,20 @@ def process_frame_for_semantics(image_tensor_chw_0_1_rgb: torch.Tensor,
         # Save enhanced SAM masks with CLIP crops and predictions
         print(f"[DEBUG] Saving enhanced SAM masks with CLIP crops for frame {frame_id}")
         predicted_classes = [cached_prompts_list[idx.item()] for idx in best_indices]
-        confidence_scores = calibrated_scores  # Use calibrated scores
+        confidence_scores = [score.item() for score in best_scores]
         save_sam_masks_visualization(image_hwc_uint8_rgb, sam_masks_data_list, debug_output_dir, frame_id,
                                    tensor_crops_for_clip, predicted_classes, confidence_scores)
 
     current_local_id_counter = 1
     for i, seg_info in enumerate(segment_info_for_classification):
         class_label = cached_prompts_list[best_indices[i].item()]
-        confidence = calibrated_scores[i]  # Use calibrated score
+        confidence = best_scores[i].item()
         
         print(f"[DEBUG] Segment {i}: {class_label} (confidence: {confidence:.2f})")
         
         # Assign segments with confidence > threshold, even if classified as background
         # This helps debug what's happening
-        confidence_threshold = 10.0  # Lower threshold after calibration adjustments
+        confidence_threshold = 20.0  # Lower threshold for now to see what's happening
         if confidence > confidence_threshold:
             segment_torch = seg_info['mask_torch']
             valid_pixels_for_current_id = segment_torch & (local_instance_mask == 0)

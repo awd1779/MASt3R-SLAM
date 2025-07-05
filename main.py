@@ -302,13 +302,31 @@ if __name__ == "__main__":
                 frame.local_id_to_class_label_map = None
             # --- End Semantic Processing for first frame ---
 
-            # The FrameTracker.track method will be called for this frame (as mode becomes TRACKING).
-            # It will handle initializing global_instance_ids for this first keyframe.
-            # However, the first keyframe is usually added directly without full tracking.
-            # Let's ensure this frame is processed by tracker to set its global_instance_ids.
-            # The original code adds to keyframes THEN sets mode to TRACKING.
-            # The tracker logic for first frame / no keyframe needs to be robust.
-            # For now, we assume the tracker.track call (even if simplified for first KF) will populate global_instance_ids.
+            # Initialize global_instance_ids for the first frame based on its local semantic masks
+            if frame.local_instance_mask is not None and frame.X_canon is not None:
+                num_points = frame.X_canon.shape[0]
+                frame.global_instance_ids = torch.zeros(num_points, 1, dtype=torch.int64, device=device)
+                
+                local_mask_flat = frame.local_instance_mask.view(-1)
+                if local_mask_flat.numel() == num_points:
+                    unique_local_ids = torch.unique(local_mask_flat)
+                    for local_id_tensor in unique_local_ids:
+                        local_id = local_id_tensor.item()
+                        if local_id == 0:  # Skip background
+                            continue
+                        
+                        # Assign a new global ID
+                        new_global_id = tracker.g_next_global_id
+                        frame.global_instance_ids.view(-1)[local_mask_flat == local_id] = new_global_id
+                        
+                        # Update the global semantic map
+                        class_name = frame.local_id_to_class_label_map.get(local_id, f"unknown_local_id_{local_id}")
+                        tracker.g_global_id_to_class_label_map[new_global_id] = class_name
+                        tracker.g_next_global_id += 1
+                        
+                    print(f"[INFO main.py] Initialized global IDs for first frame. Map: {tracker.g_global_id_to_class_label_map}")
+                else:
+                    print(f"[WARN main.py] First frame mask size mismatch: mask={local_mask_flat.numel()}, points={num_points}")
 
             keyframes.append(frame) # Add after semantic processing
             states.queue_global_optimization(len(keyframes) - 1)

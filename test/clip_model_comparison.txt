@@ -1,0 +1,30 @@
+
+📊 CLIP MODEL CONFIGURATION COMPARISON
+================================================================================
+
+1. BASELINE (Current)
+   Model: ViT-B-32 (laion2b_e16)
+   Average Score: 28.04
+   Speed: 4.7ms per crop
+   Use Case: Real-time processing with moderate accuracy
+
+2. BALANCED
+   Model: ConvNeXt-XXLarge (laion2b_s34b_b82k_augreg_soup)
+   Average Score: 29.59 (+1.55)
+   Speed: 11.3ms per crop
+   Use Case: Good balance of speed and accuracy
+
+3. BEST ACCURACY (Recommended)
+   Model: ViT-bigG-14 (laion2b_s39b_b160k)
+   Average Score: 35.56 (+7.52)
+   With Augmented Prompts: 36.48 (+8.44)
+   Speed: 18.8ms per crop
+   Use Case: Highest accuracy for reliable 3D semantic mapping
+
+RECOMMENDATION FOR YOUR USE CASE:
+- Since you need reliable confidence scores for 3D semantic mapping
+- The +8.44 point improvement ensures robust semantic labels
+- 18.8ms is still fast enough for most SLAM applications
+- Use ViT-bigG-14 with augmented prompts
+
+================================================================================
