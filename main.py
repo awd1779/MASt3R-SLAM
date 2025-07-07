@@ -419,9 +419,9 @@ if __name__ == "__main__":
             raise Exception("Invalid mode")
 
         if add_new_kf:
-            # Ensure frame has semantic data before adding as keyframe
-            if frame.local_instance_mask is None and frame.img is not None:
-                print(f"[INFO main.py] Processing semantics for new keyframe {frame.frame_id}")
+            # Always process keyframes with full semantics (not fast mode)
+            if frame.img is not None:
+                print(f"[INFO main.py] Processing full semantics for new keyframe {frame.frame_id}")
                 try:
                     frame_data = {
                         'image_tensor': frame.img.squeeze(0),
@@ -429,11 +429,15 @@ if __name__ == "__main__":
                         'pose': frame.T_WC.matrix()[0] if hasattr(frame, 'T_WC') and frame.T_WC is not None else None,
                         'global_ids': frame.global_instance_ids
                     }
+                    # Force full semantic processing for keyframes
                     result = semantic_processor.process_frame(frame_data, mode='full', use_cache=False)
                     frame.local_instance_mask = result['local_instance_mask'].to(device)
                     frame.local_id_to_class_label_map = result['local_id_to_class_map']
+                    print(f"[INFO main.py] Keyframe {frame.frame_id} has {len(result.get('sam_masks', []))} semantic masks")
                 except Exception as e:
                     print(f"[ERROR main.py] Semantic processing failed for keyframe {frame.frame_id}: {e}")
+                    frame.local_instance_mask = None
+                    frame.local_id_to_class_label_map = None
             
             keyframes.append(frame)
             states.queue_global_optimization(len(keyframes) - 1)

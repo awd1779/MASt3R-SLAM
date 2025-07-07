@@ -69,8 +69,9 @@ class FrameTracker:
         num_points_current_frame = frame.X_canon.shape[0]
         frame.global_instance_ids = torch.zeros(num_points_current_frame, 1, dtype=torch.int64, device=self.device)
 
-        # Process semantics for ALL frames to ensure they have local masks when they become keyframes
-        if frame.local_instance_mask is None and frame.img is not None and self.semantic_processor is not None:
+        # Skip semantic processing in tracker - let main.py handle it for keyframes only
+        # This avoids the issue where fast mode creates poor quality masks
+        if False:  # Disabled to ensure only keyframes get semantic processing
             print(f"[Tracker] Processing semantics for frame {frame.frame_id}")
             try:
                 frame_data = {
