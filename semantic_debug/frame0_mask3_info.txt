@@ -1,2 +1,0 @@
-Label: a picture of a computer monitor
-Confidence: 44.66

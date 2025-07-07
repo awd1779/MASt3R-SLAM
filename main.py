@@ -24,7 +24,9 @@ from mast3r_slam.multiprocess_utils import new_queue, try_get_msg
 from mast3r_slam.tracker import FrameTracker
 from mast3r_slam.visualization import WindowMsg, run_visualization
 import torch.multiprocessing as mp
-from mast3r_slam.semantic_processor import process_frame_for_semantics, TEXT_PROMPTS as SEMANTIC_TEXT_PROMPTS # New Import
+from mast3r_slam.semantic_processor_v2 import SemanticProcessorV2
+from mast3r_slam.semantic_core import TEXT_PROMPTS as SEMANTIC_TEXT_PROMPTS # Use new core module
+from mast3r_slam.semantic_utils import SemanticMapper # Use consolidated utils
 
 
 def relocalization(frame, keyframes, factor_graph, retrieval_database):
@@ -233,8 +235,28 @@ if __name__ == "__main__":
     # This map will be populated by FrameTracker
     g_initial_global_id_to_class_label_map = {0: "background"}
 
-    # Instantiate FrameTracker, passing the initial map
-    tracker = FrameTracker(model, keyframes, device, g_initial_global_id_to_class_label_map)
+    # Instantiate FrameTracker, passing the initial map and semantic processor
+    tracker = FrameTracker(model, keyframes, device, g_initial_global_id_to_class_label_map, semantic_processor=None)  # Will initialize after creating processor
+    
+    # Create semantic mapper for improved point-to-pixel alignment
+    semantic_mapper = SemanticMapper(device=device)
+    
+    # Initialize SemanticProcessorV2 with optimizations
+    semantic_processor = SemanticProcessorV2(
+        device=device,
+        enable_batch_processing=True,
+        enable_caching=True,
+        enable_post_processing=True,
+        enable_ensemble=False,  # Disable for speed, set True for accuracy
+        cache_dir=pathlib.Path("semantic_cache") if dataset.save_results else None,
+        text_prompts=SEMANTIC_TEXT_PROMPTS
+    )
+    semantic_processor.initialize_models()
+    print("[INFO] SemanticProcessorV2 initialized with batch processing and caching enabled")
+    
+    # Update tracker with semantic processor
+    tracker.semantic_processor = semantic_processor
+    
     last_msg = WindowMsg()
 
     backend = mp.Process(target=run_backend, args=(config, model, states, keyframes, K))
@@ -285,13 +307,15 @@ if __name__ == "__main__":
             # --- New: Process semantics for the first frame ---
             print(f"[INFO main.py] Processing semantics for initial frame {frame.frame_id}...")
             try:
-                # frame.img is (1,C,H,W) as assigned in create_frame, semantic_processor expects (C,H,W)
-                local_mask, local_map = process_frame_for_semantics(
-                    image_tensor_chw_0_1_rgb=frame.img.squeeze(0), # Changed frame.rgb to frame.img
-                    text_prompts_for_clip=SEMANTIC_TEXT_PROMPTS,
-                    enable_debug_viz=True,  # Enable debug visualization
-                    frame_id=frame.frame_id
-                )
+                # Use SemanticProcessorV2 for better performance
+                frame_data = {
+                    'image_tensor': frame.img.squeeze(0),  # (C,H,W)
+                    'frame_id': frame.frame_id,
+                    'pose': frame.T_WC.matrix()[0] if hasattr(frame, 'T_WC') and frame.T_WC is not None else None
+                }
+                result = semantic_processor.process_frame(frame_data, mode='full', use_cache=False)  # No cache for first frame
+                local_mask = result['local_instance_mask']
+                local_map = result['local_id_to_class_map']
                 frame.local_instance_mask = local_mask.to(device if local_mask is not None else None)
                 frame.local_id_to_class_label_map = local_map
                 # global_instance_ids for this first frame will be set by FrameTracker.track
@@ -307,26 +331,64 @@ if __name__ == "__main__":
                 num_points = frame.X_canon.shape[0]
                 frame.global_instance_ids = torch.zeros(num_points, 1, dtype=torch.int64, device=device)
                 
-                local_mask_flat = frame.local_instance_mask.view(-1)
-                if local_mask_flat.numel() == num_points:
-                    unique_local_ids = torch.unique(local_mask_flat)
-                    for local_id_tensor in unique_local_ids:
-                        local_id = local_id_tensor.item()
-                        if local_id == 0:  # Skip background
-                            continue
-                        
+                # Use improved semantic mapper for point-to-pixel alignment
+                # Get confidence map and ensure it's 1D
+                conf_map = None
+                if hasattr(frame, 'C') and frame.C is not None:
+                    conf_map = frame.C.squeeze()  # Remove any extra dimensions
+                    if conf_map.dim() > 1:
+                        conf_map = conf_map.view(-1)  # Flatten to 1D
+                
+                labels, valid_mask = semantic_mapper.map_2d_labels_to_3d_points(
+                    semantic_mask=frame.local_instance_mask,
+                    confidence_map=conf_map,
+                    num_points=num_points,
+                    frame_shape=(frame.local_instance_mask.shape[0], frame.local_instance_mask.shape[1]),  # Use mask shape
+                    confidence_threshold=0.1  # Very low threshold for maximum coverage
+                )
+                
+                # Build confidence map for each label
+                label_confidences = {}
+                
+                # Assign global IDs to labeled points
+                unique_local_ids = torch.unique(labels)
+                for local_id_tensor in unique_local_ids:
+                    local_id = local_id_tensor.item()
+                    if local_id == 0:  # Skip background
+                        continue
+                    
+                    # Find all points with this label
+                    label_mask = (labels == local_id) & valid_mask
+                    
+                    if label_mask.any():
                         # Assign a new global ID
                         new_global_id = tracker.g_next_global_id
-                        frame.global_instance_ids.view(-1)[local_mask_flat == local_id] = new_global_id
+                        frame.global_instance_ids[label_mask] = new_global_id
                         
                         # Update the global semantic map
                         class_name = frame.local_id_to_class_label_map.get(local_id, f"unknown_local_id_{local_id}")
                         tracker.g_global_id_to_class_label_map[new_global_id] = class_name
                         tracker.g_next_global_id += 1
                         
-                    print(f"[INFO main.py] Initialized global IDs for first frame. Map: {tracker.g_global_id_to_class_label_map}")
-                else:
-                    print(f"[WARN main.py] First frame mask size mismatch: mask={local_mask_flat.numel()}, points={num_points}")
+                        # Track confidence for this label (dummy value for now)
+                        label_confidences[new_global_id] = 50.0  # Default confidence
+                        
+                        labeled_count = label_mask.sum().item()
+                        print(f"[DEBUG] Label {local_id} ({class_name}): {labeled_count} points labeled with global ID {new_global_id}")
+                
+                # Apply 3D refinement if we have 3D points
+                if frame.X_canon is not None and frame.global_instance_ids.sum() > 0:
+                    print(f"[INFO] Applying 3D spatial refinement to initial labels...")
+                    refined_labels = semantic_mapper.refine_labels_with_3d_proximity(
+                        points_3d=frame.X_canon,
+                        labels=frame.global_instance_ids.view(-1),
+                        label_confidences=label_confidences,
+                        distance_threshold=0.1,
+                        min_neighbors=3
+                    )
+                    frame.global_instance_ids = refined_labels.view(-1, 1)
+                
+                print(f"[INFO main.py] Initialized global IDs for first frame. Map: {tracker.g_global_id_to_class_label_map}")
 
             keyframes.append(frame) # Add after semantic processing
             states.queue_global_optimization(len(keyframes) - 1)
@@ -357,6 +419,22 @@ if __name__ == "__main__":
             raise Exception("Invalid mode")
 
         if add_new_kf:
+            # Ensure frame has semantic data before adding as keyframe
+            if frame.local_instance_mask is None and frame.img is not None:
+                print(f"[INFO main.py] Processing semantics for new keyframe {frame.frame_id}")
+                try:
+                    frame_data = {
+                        'image_tensor': frame.img.squeeze(0),
+                        'frame_id': frame.frame_id,
+                        'pose': frame.T_WC.matrix()[0] if hasattr(frame, 'T_WC') and frame.T_WC is not None else None,
+                        'global_ids': frame.global_instance_ids
+                    }
+                    result = semantic_processor.process_frame(frame_data, mode='full', use_cache=False)
+                    frame.local_instance_mask = result['local_instance_mask'].to(device)
+                    frame.local_id_to_class_label_map = result['local_id_to_class_map']
+                except Exception as e:
+                    print(f"[ERROR main.py] Semantic processing failed for keyframe {frame.frame_id}: {e}")
+            
             keyframes.append(frame)
             states.queue_global_optimization(len(keyframes) - 1)
             # In single threaded mode, wait for the backend to finish
@@ -405,6 +483,17 @@ if __name__ == "__main__":
             cv2.imwrite(f"{savedir}/{i}.png", frame)
 
     print("done")
+    
+    # Print semantic processor performance summary
+    print("\n[SemanticProcessorV2] Performance Summary:")
+    perf_summary = semantic_processor.get_performance_summary()
+    for key, stats in perf_summary.items():
+        if isinstance(stats, dict) and 'mean_ms' in stats:
+            print(f"  {key}: mean={stats['mean_ms']:.1f}ms, total={stats['total_s']:.2f}s, count={stats['count']}")
+    
+    # Clean up semantic processor resources
+    semantic_processor.shutdown()
+    
     backend.join()
     if not args.no_viz:
         viz.join()

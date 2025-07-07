@@ -7,7 +7,7 @@ from mast3r_slam.mast3r_utils import resize_img
 from mast3r_slam.config import config
 # Removed old seem_utils import, will add semantic_processor import
 # from .seem_utils import load_sam_model, run_sam_inference
-from mast3r_slam.semantic_processor import process_frame_for_semantics, TEXT_PROMPTS as SEMANTIC_TEXT_PROMPTS
+from mast3r_slam.semantic_core import process_frame_for_semantics, TEXT_PROMPTS as SEMANTIC_TEXT_PROMPTS
 
 
 class Mode(Enum):

@@ -1,2 +1,0 @@
-Label: a picture of a desktop computer
-Confidence: 42.63

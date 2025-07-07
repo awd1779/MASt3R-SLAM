@@ -11,12 +11,13 @@ from mast3r_slam.geometry import (
 from mast3r_slam.nonlinear_optimizer import check_convergence, huber
 from mast3r_slam.config import config
 from mast3r_slam.mast3r_utils import mast3r_match_asymmetric
-from mast3r_slam.semantic_processor import process_frame_for_semantics, TEXT_PROMPTS as SEMANTIC_TEXT_PROMPTS # New Import
+from mast3r_slam.semantic_core import TEXT_PROMPTS as SEMANTIC_TEXT_PROMPTS # Use new core module
 from collections import Counter # Ensure Counter is imported (already added previously)
+from mast3r_slam.semantic_utils import SemanticMapper # Use consolidated utils
 
 
 class FrameTracker:
-    def __init__(self, model, frames, device, initial_global_id_to_class_label_map: dict):
+    def __init__(self, model, frames, device, initial_global_id_to_class_label_map: dict, semantic_processor=None):
         self.cfg = config["tracking"]
         self.model = model
         self.keyframes = frames # This is a SharedKeyframes instance
@@ -30,6 +31,15 @@ class FrameTracker:
             self.g_global_id_to_class_label_map[0] = "background"
 
         self.reset_idx_f2k()
+        
+        # Create semantic mapper for improved labeling
+        self.semantic_mapper = SemanticMapper(device=device)
+        
+        # Track label confidences for refinement
+        self.label_confidences = {0: 100.0}  # Background has high confidence
+        
+        # Store semantic processor instance
+        self.semantic_processor = semantic_processor
 
     # Initialize with identity indexing of size (1,n)
     def reset_idx_f2k(self):
@@ -59,98 +69,197 @@ class FrameTracker:
         num_points_current_frame = frame.X_canon.shape[0]
         frame.global_instance_ids = torch.zeros(num_points_current_frame, 1, dtype=torch.int64, device=self.device)
 
+        # Process semantics for ALL frames to ensure they have local masks when they become keyframes
+        if frame.local_instance_mask is None and frame.img is not None and self.semantic_processor is not None:
+            print(f"[Tracker] Processing semantics for frame {frame.frame_id}")
+            try:
+                frame_data = {
+                    'image_tensor': frame.img.squeeze(0),
+                    'frame_id': frame.frame_id,
+                    'pose': frame.T_WC.matrix()[0] if hasattr(frame, 'T_WC') and frame.T_WC is not None else None,
+                    'global_ids': None  # Will be populated after
+                }
+                # Use fast mode with caching for non-keyframes
+                result = self.semantic_processor.process_frame(frame_data, mode='fast', use_cache=True)
+                frame.local_instance_mask = result['local_instance_mask'].to(self.device)
+                frame.local_id_to_class_label_map = result['local_id_to_class_map']
+            except Exception as e:
+                print(f"[Tracker] Semantic processing failed for frame {frame.frame_id}: {e}")
+                frame.local_instance_mask = None
+                frame.local_id_to_class_label_map = None
+
         # --- Start: 3D Instance Association Logic ---
-        # This logic runs if we have a valid keyframe to track against and we have its global_instance_ids
+        # IMPROVED: First assign labels to ALL points based on 2D mask, then merge with keyframe
+        if frame.local_instance_mask is not None and frame.local_id_to_class_label_map is not None:
+            # Map 2D labels to ALL 3D points in current frame
+            current_labels, current_valid_mask = self.semantic_mapper.map_2d_labels_to_3d_points(
+                semantic_mask=frame.local_instance_mask,
+                confidence_map=frame.C if hasattr(frame, 'C') and frame.C is not None else None,
+                num_points=num_points_current_frame,
+                frame_shape=(frame.local_instance_mask.shape[0], frame.local_instance_mask.shape[1]),
+                confidence_threshold=0.5  # Lowered threshold for better coverage
+            )
+            
+            # First: Assign initial global IDs to all labeled points
+            unique_local_ids = torch.unique(current_labels)
+            local_to_new_global = {}
+            
+            for local_id in unique_local_ids:
+                local_id_val = local_id.item()
+                if local_id_val == 0:  # Skip background
+                    continue
+                    
+                label_mask = (current_labels == local_id) & current_valid_mask
+                if label_mask.any():
+                    # Temporarily assign new global IDs
+                    new_global_id = self.g_next_global_id
+                    local_to_new_global[local_id_val] = new_global_id
+                    frame.global_instance_ids[label_mask] = new_global_id
+                    
+                    # Store class info
+                    class_name = frame.local_id_to_class_label_map.get(local_id_val, f"unknown_{local_id_val}")
+                    self.g_global_id_to_class_label_map[new_global_id] = class_name
+                    self.label_confidences[new_global_id] = 40.0  # Initial confidence
+                    self.g_next_global_id += 1
+        
+        # Second: Merge with keyframe labels if available
         if keyframe is not None and keyframe.global_instance_ids is not None and \
            frame.local_instance_mask is not None and frame.local_id_to_class_label_map is not None:
 
-            # Ensure keyframe.global_instance_ids is flat for easier indexing if it's not already
-            # and has the correct number of elements corresponding to keyframe's points (Xkf.shape[0])
-            # Xkf was used to get idx_f2k.
-            num_points_keyframe = Xkf.shape[0] # Xkf has shape (N_kf_pts, 3)
-
+            num_points_keyframe = Xkf.shape[0]
             if keyframe.global_instance_ids.numel() != num_points_keyframe:
                 print(f"[Tracker WARN] Keyframe {keyframe.frame_id} global_instance_ids numel ({keyframe.global_instance_ids.numel()}) "
                       f"does not match its point count ({num_points_keyframe}). Skipping global ID propagation.")
             else:
                 keyframe_global_ids_flat = keyframe.global_instance_ids.view(-1)
 
-                # Flatten current frame's local SAM mask to align with point indices
-                # frame.local_instance_mask is HxW.
-                # Assuming Xff (and thus frame.X_canon) points correspond row-major to HxW.
-                current_frame_local_sam_ids_flat = frame.local_instance_mask.view(-1)
+                # Track which global IDs need to be merged
+                global_id_merge_map = {}  # Maps current frame's global ID -> keyframe's global ID
+                
+                # Iterate through current frame points that have a valid match in the keyframe
+                for p_curr_idx in range(num_points_current_frame):
+                    p_kf_idx = idx_f2k[p_curr_idx].item()
+                    
+                    if 0 <= p_kf_idx < num_points_keyframe:
+                        prev_global_id = keyframe_global_ids_flat[p_kf_idx].item()
+                        curr_global_id = frame.global_instance_ids[p_curr_idx].item()
+                        
+                        # Case 1: Both have labels - check if they should merge
+                        if prev_global_id != 0 and curr_global_id != 0 and prev_global_id != curr_global_id:
+                            prev_class = self.g_global_id_to_class_label_map.get(prev_global_id, "")
+                            curr_class = self.g_global_id_to_class_label_map.get(curr_global_id, "")
+                            
+                            # If same class, merge them
+                            if prev_class == curr_class or curr_class.startswith("unknown_"):
+                                global_id_merge_map[curr_global_id] = prev_global_id
+                        
+                        # Case 2: Current has no label but keyframe does - propagate
+                        elif curr_global_id == 0 and prev_global_id != 0:
+                            frame.global_instance_ids[p_curr_idx] = prev_global_id
 
-                if current_frame_local_sam_ids_flat.numel() != num_points_current_frame:
-                    print(f"[Tracker WARN] Current frame {frame.frame_id} local_instance_mask numel ({current_frame_local_sam_ids_flat.numel()}) "
-                          f"does not match its point count ({num_points_current_frame}). Skipping global ID propagation.")
-                else:
-                    local_id_to_global_id_candidates = {}
-
-                    # Iterate through current frame points that have a valid match in the keyframe
-                    # idx_f2k[i] gives the index of the point in keyframe that matches point i in current_frame
-                    # valid_match_k[i] would indicate if point i in keyframe has a valid match (not directly used here, idx_f2k implies match)
-                    # We need to iterate based on current_frame's point indices 0 to N-1
-                    for p_curr_idx in range(num_points_current_frame):
-                        p_kf_idx = idx_f2k[p_curr_idx].item() # Get the flat index into keyframe points
-
-                        # Check if this match is valid (e.g., sometimes idx_f2k might have placeholder for no match,
-                        # or p_kf_idx might be out of bounds if not careful. mast3r_match_asymmetric should give valid indices)
-                        # A simple validity check for p_kf_idx:
-                        if 0 <= p_kf_idx < num_points_keyframe:
-                            prev_global_id = keyframe_global_ids_flat[p_kf_idx].item()
-                            current_local_sam_id = current_frame_local_sam_ids_flat[p_curr_idx].item()
-
-                            if current_local_sam_id != 0 and prev_global_id != 0: # Not background, and matched to a known global object
-                                if current_local_sam_id not in local_id_to_global_id_candidates:
-                                    local_id_to_global_id_candidates[current_local_sam_id] = []
-                                local_id_to_global_id_candidates[current_local_sam_id].append(prev_global_id)
-
-                    # Resolve and Propagate Global IDs for Matched Segments
-                    for local_id, candidate_global_ids_list in local_id_to_global_id_candidates.items():
-                        if candidate_global_ids_list:
-                            # Resolve: Pick the most frequent global ID (majority vote)
-                            chosen_global_id = Counter(candidate_global_ids_list).most_common(1)[0][0]
-                            # Assign this chosen_global_id to all points in current_frame with this local_id
-                            frame.global_instance_ids.view(-1)[current_frame_local_sam_ids_flat == local_id] = chosen_global_id
-
-            # Assign New Global IDs for Unmatched New Segments in current_frame
-            unique_local_ids_in_current_frame = torch.unique(current_frame_local_sam_ids_flat)
-            for local_id_val_tensor in unique_local_ids_in_current_frame:
-                local_id_val = local_id_val_tensor.item()
-                if local_id_val == 0: # Skip background SAM label
-                    continue
-
-                # Check if this local_id_val segment in current_frame still has unassigned global_instance_ids (i.e., all are 0)
-                # This means it wasn't propagated from a keyframe match.
-                current_segment_mask_flat = (current_frame_local_sam_ids_flat == local_id_val)
-                if (frame.global_instance_ids.view(-1)[current_segment_mask_flat] == 0).all():
-                    new_global_id = self.g_next_global_id
-                    frame.global_instance_ids.view(-1)[current_segment_mask_flat] = new_global_id
-
-                    class_name = frame.local_id_to_class_label_map.get(local_id_val, f"unknown_local_id_{local_id_val}")
-                    self.g_global_id_to_class_label_map[new_global_id] = class_name
-                    self.g_next_global_id += 1
-
-        elif frame.local_instance_mask is not None and frame.local_id_to_class_label_map is not None:
-            # This is likely the first keyframe, or tracking was lost and re-initialized.
-            # Populate global_instance_ids based purely on this frame's SAM segmentation.
-            print(f"[Tracker INFO] Frame {frame.frame_id}: No valid keyframe for propagation or keyframe lacks global IDs. Initializing global IDs from current frame's SAM.")
-            current_frame_local_sam_ids_flat = frame.local_instance_mask.view(-1)
-            if current_frame_local_sam_ids_flat.numel() != num_points_current_frame:
-                 print(f"[Tracker WARN] First Keyframe {frame.frame_id} local_instance_mask numel ({current_frame_local_sam_ids_flat.numel()}) "
-                       f"does not match its point count ({num_points_current_frame}). Cannot init global IDs.")
-            else:
-                unique_local_ids_in_current_frame = torch.unique(current_frame_local_sam_ids_flat)
-                for local_id_val_tensor in unique_local_ids_in_current_frame:
-                    local_id_val = local_id_val_tensor.item()
-                    if local_id_val == 0: # Skip background
-                        continue
-
-                    new_global_id = self.g_next_global_id
-                    frame.global_instance_ids.view(-1)[current_frame_local_sam_ids_flat == local_id_val] = new_global_id
-                    class_name = frame.local_id_to_class_label_map.get(local_id_val, f"unknown_local_id_{local_id_val}")
-                    self.g_global_id_to_class_label_map[new_global_id] = class_name
-                    self.g_next_global_id += 1
+                # Apply the merges
+                for curr_global_id, prev_global_id in global_id_merge_map.items():
+                    # Replace all instances of curr_global_id with prev_global_id
+                    frame.global_instance_ids[frame.global_instance_ids == curr_global_id] = prev_global_id
+                    
+                    # Update confidence if keyframe has higher confidence
+                    if prev_global_id in self.label_confidences and curr_global_id in self.label_confidences:
+                        self.label_confidences[prev_global_id] = max(
+                            self.label_confidences[prev_global_id],
+                            self.label_confidences[curr_global_id]
+                        )
+                    
+                    # Clean up the temporary global ID
+                    if curr_global_id in self.g_global_id_to_class_label_map:
+                        del self.g_global_id_to_class_label_map[curr_global_id]
+                    if curr_global_id in self.label_confidences:
+                        del self.label_confidences[curr_global_id]
+                    
+                    # Decrement next ID if we just removed the latest one
+                    if curr_global_id == self.g_next_global_id - 1:
+                        self.g_next_global_id -= 1
+        
+        # Log statistics for debugging
+        non_background = (frame.global_instance_ids != 0).sum().item()
+        total_points = frame.global_instance_ids.numel()
+        print(f"[Tracker] Frame {frame.frame_id}: {non_background}/{total_points} points labeled ({non_background/total_points*100:.1f}%)")
+        
+        # AGGRESSIVE SEMANTIC PROPAGATION - Only run if we have too many background points
+        background_ratio = (frame.global_instance_ids == 0).sum().item() / total_points
+        
+        if background_ratio > 0.4 and frame.X_canon is not None:  # If more than 40% background
+            print(f"[Tracker] Applying AGGRESSIVE semantic propagation (background ratio: {background_ratio:.1%})")
+            
+            # Step 1: Propagate high-confidence labels to nearby unlabeled points
+            if hasattr(self, 'semantic_mapper') and self.semantic_mapper is not None:
+                # Get current label confidences
+                label_confidences = {}
+                unique_ids = torch.unique(frame.global_instance_ids)
+                for gid in unique_ids:
+                    if gid.item() > 0:  # Skip background
+                        # Use stored confidence or default
+                        label_confidences[gid.item()] = self.label_confidences.get(gid.item(), 50.0)
+                
+                # Propagate high-confidence labels spatially
+                print(f"[Tracker] Step 1: Propagating high-confidence labels spatially...")
+                propagated_labels = self.semantic_mapper.propagate_high_confidence_labels(
+                    points_3d=frame.X_canon,
+                    labels=frame.global_instance_ids.view(-1),
+                    confidences=torch.tensor([
+                        label_confidences.get(lid.item(), 0.0) 
+                        for lid in frame.global_instance_ids.view(-1)
+                    ], device=self.device),
+                    propagation_radius=0.1,  # 10cm radius
+                    confidence_threshold=40.0  # Lower threshold for more propagation
+                )
+                frame.global_instance_ids = propagated_labels.view(-1, 1)
+                
+                # Update stats
+                new_background_ratio = (frame.global_instance_ids == 0).sum().item() / total_points
+                print(f"[Tracker] After spatial propagation: {new_background_ratio:.1%} background")
+            
+            # Step 2: If still too many background points, use nearest neighbor filling
+            if (frame.global_instance_ids == 0).sum().item() / total_points > 0.35:
+                print(f"[Tracker] Step 2: Applying nearest-neighbor filling for remaining unlabeled points...")
+                
+                # Find labeled and unlabeled points
+                labeled_mask = frame.global_instance_ids.view(-1) > 0
+                unlabeled_mask = ~labeled_mask
+                
+                if labeled_mask.any() and unlabeled_mask.any():
+                    labeled_indices = torch.where(labeled_mask)[0]
+                    unlabeled_indices = torch.where(unlabeled_mask)[0]
+                    
+                    # Process in chunks to save memory
+                    chunk_size = 500
+                    for start_idx in range(0, unlabeled_indices.numel(), chunk_size):
+                        end_idx = min(start_idx + chunk_size, unlabeled_indices.numel())
+                        chunk_indices = unlabeled_indices[start_idx:end_idx]
+                        chunk_points = frame.X_canon[chunk_indices]
+                        
+                        # Find nearest labeled point for each unlabeled point
+                        distances = torch.cdist(chunk_points, frame.X_canon[labeled_indices])
+                        min_distances, nearest_indices = distances.min(dim=1)
+                        
+                        # Only fill if within reasonable distance (20cm)
+                        fill_mask = min_distances < 0.2
+                        
+                        for i in range(chunk_points.shape[0]):
+                            if fill_mask[i]:
+                                source_idx = labeled_indices[nearest_indices[i]]
+                                frame.global_instance_ids[chunk_indices[i]] = frame.global_instance_ids[source_idx]
+                
+                # Final stats
+                final_background_ratio = (frame.global_instance_ids == 0).sum().item() / total_points
+                final_non_background = (frame.global_instance_ids != 0).sum().item()
+                print(f"[Tracker] AGGRESSIVE propagation complete:")
+                print(f"  Final: {final_non_background}/{total_points} labeled ({final_non_background/total_points*100:.1f}%)")
+                print(f"  Background reduced from {background_ratio:.1%} to {final_background_ratio:.1%}")
+        
+        # Update final debug output
+        non_background = (frame.global_instance_ids != 0).sum().item()
+        total_points = frame.global_instance_ids.numel()
+        print(f"[Tracker] Frame {frame.frame_id} FINAL: {non_background}/{total_points} points labeled ({non_background/total_points*100:.1f}%)")
         # --- End: 3D Instance Association Logic (This whole block will be conditional) ---
 
         # The decision to add a new keyframe (new_kf) is made LATER in this function,
@@ -233,6 +342,8 @@ class FrameTracker:
         )
 
         new_kf = min(match_frac_k, unique_frac_f) < self.cfg["match_frac_thresh"]
+        
+        print(f"[DEBUG] Frame {frame.frame_id}: match_frac_k={match_frac_k:.3f}, unique_frac_f={unique_frac_f:.3f}, threshold={self.cfg['match_frac_thresh']}, new_kf={new_kf}")
 
         # Rest idx if new keyframe
         if new_kf:
@@ -241,13 +352,35 @@ class FrameTracker:
             # 1. Perform full semantic processing (SAM + CLIP)
             if frame.img is not None: # Ensure image data is available
                 print(f"[Tracker INFO] Running full semantic processing for new keyframe {frame.frame_id}...")
+                print(f"[DEBUG] Keyframe {frame.frame_id} frame.img shape: {frame.img.shape}, dtype: {frame.img.dtype}")
                 try:
-                    local_mask, local_map = process_frame_for_semantics(
-                        image_tensor_chw_0_1_rgb=frame.img.squeeze(0),
-                        text_prompts_for_clip=SEMANTIC_TEXT_PROMPTS,
-                        enable_debug_viz=True,  # Enable debug visualization
-                        frame_id=frame.frame_id
-                    )
+                    if self.semantic_processor is not None:
+                        # Use SemanticProcessorV2 if available
+                        # Check if img needs to be accessed differently for keyframes
+                        if hasattr(frame, 'rgb') and frame.rgb is not None:
+                            print(f"[DEBUG] Using frame.rgb instead, shape: {frame.rgb.shape}")
+                            image_tensor = frame.rgb.squeeze(0) if frame.rgb.ndim > 3 else frame.rgb
+                        else:
+                            image_tensor = frame.img.squeeze(0) if frame.img.ndim > 3 else frame.img
+                        
+                        frame_data = {
+                            'image_tensor': image_tensor,  # (C,H,W)
+                            'frame_id': frame.frame_id,
+                            'pose': frame.T_WC.matrix()[0] if hasattr(frame, 'T_WC') and frame.T_WC is not None else None,
+                            'global_ids': frame.global_instance_ids
+                        }
+                        result = self.semantic_processor.process_frame(frame_data, mode='full', use_cache=True)
+                        local_mask = result['local_instance_mask']
+                        local_map = result['local_id_to_class_map']
+                    else:
+                        # Fallback to original processor
+                        from mast3r_slam.semantic_core import process_frame_for_semantics
+                        local_mask, local_map = process_frame_for_semantics(
+                            image_tensor_chw_0_1_rgb=frame.img.squeeze(0),
+                            text_prompts_for_clip=SEMANTIC_TEXT_PROMPTS,
+                            enable_debug_viz=True,
+                            frame_id=frame.frame_id
+                        )
                     frame.local_instance_mask = local_mask.to(self.device if local_mask is not None else None)
                     frame.local_id_to_class_label_map = local_map
                 except Exception as e_semantic_kf:
@@ -262,7 +395,17 @@ class FrameTracker:
             # 2. Initialize and Populate global_instance_ids
             # num_points_current_frame was already defined when frame.X_canon was first populated
             if frame.X_canon is not None:
-                frame.global_instance_ids = torch.zeros(num_points_current_frame, 1, dtype=torch.int64, device=self.device)
+                # CRITICAL FIX: Don't reinitialize to zeros if frame already has global_instance_ids!
+                # The frame was already processed as a regular frame and has labels
+                if not hasattr(frame, 'global_instance_ids') or frame.global_instance_ids is None:
+                    print(f"[DEBUG] Initializing global_instance_ids for keyframe {frame.frame_id}")
+                    frame.global_instance_ids = torch.zeros(num_points_current_frame, 1, dtype=torch.int64, device=self.device)
+                else:
+                    print(f"[DEBUG] Keyframe {frame.frame_id} already has global_instance_ids, keeping existing labels")
+                    # Verify the size matches
+                    if frame.global_instance_ids.numel() != num_points_current_frame:
+                        print(f"[WARN] Size mismatch: existing global_ids {frame.global_instance_ids.numel()} vs current points {num_points_current_frame}")
+                        frame.global_instance_ids = torch.zeros(num_points_current_frame, 1, dtype=torch.int64, device=self.device)
 
                 # 3. Perform 3D Instance Association (using last_kf_for_propagation)
                 if last_kf_for_propagation is not None and \
@@ -276,64 +419,144 @@ class FrameTracker:
                               f"({last_kf_for_propagation.global_instance_ids.numel()}) != point count ({num_points_last_kf}). Skipping propagation.")
                     else:
                         last_kf_global_ids_flat = last_kf_for_propagation.global_instance_ids.view(-1)
-                        current_frame_local_sam_ids_flat = frame.local_instance_mask.view(-1)
+                        
+                        # Use semantic mapper for proper alignment
+                        current_labels, current_valid_mask = self.semantic_mapper.map_2d_labels_to_3d_points(
+                            semantic_mask=frame.local_instance_mask,
+                            confidence_map=frame.C if hasattr(frame, 'C') and frame.C is not None else None,
+                            num_points=num_points_current_frame,
+                            frame_shape=(frame.local_instance_mask.shape[0], frame.local_instance_mask.shape[1]),
+                            confidence_threshold=1.0
+                        )
+                        
+                        local_id_to_global_id_candidates = {}
+                        for p_curr_idx in range(num_points_current_frame):
+                            p_kf_idx = idx_f2k[p_curr_idx].item()
+                            if 0 <= p_kf_idx < num_points_last_kf and current_valid_mask[p_curr_idx]:
+                                prev_global_id = last_kf_global_ids_flat[p_kf_idx].item()
+                                current_local_sam_id = current_labels[p_curr_idx].item()
+                                if current_local_sam_id != 0 and prev_global_id != 0:
+                                    if current_local_sam_id not in local_id_to_global_id_candidates:
+                                        local_id_to_global_id_candidates[current_local_sam_id] = []
+                                    local_id_to_global_id_candidates[current_local_sam_id].append(prev_global_id)
 
-                        if current_frame_local_sam_ids_flat.numel() == num_points_current_frame:
-                            local_id_to_global_id_candidates = {}
-                            for p_curr_idx in range(num_points_current_frame):
-                                p_kf_idx = idx_f2k[p_curr_idx].item()
-                                if 0 <= p_kf_idx < num_points_last_kf:
-                                    prev_global_id = last_kf_global_ids_flat[p_kf_idx].item()
-                                    current_local_sam_id = current_frame_local_sam_ids_flat[p_curr_idx].item()
-                                    if current_local_sam_id != 0 and prev_global_id != 0:
-                                        if current_local_sam_id not in local_id_to_global_id_candidates:
-                                            local_id_to_global_id_candidates[current_local_sam_id] = []
-                                        local_id_to_global_id_candidates[current_local_sam_id].append(prev_global_id)
-
-                            for local_id, candidates in local_id_to_global_id_candidates.items():
-                                if candidates:
-                                    chosen_global_id = Counter(candidates).most_common(1)[0][0]
-                                    frame.global_instance_ids.view(-1)[current_frame_local_sam_ids_flat == local_id] = chosen_global_id
+                        for local_id, candidates in local_id_to_global_id_candidates.items():
+                            if candidates:
+                                chosen_global_id = Counter(candidates).most_common(1)[0][0]
+                                # Use the mapper's labels for consistency
+                                label_mask = (current_labels == local_id) & current_valid_mask
+                                frame.global_instance_ids[label_mask] = chosen_global_id
 
                     # Assign New Global IDs for this new keyframe
-                    unique_local_ids = torch.unique(current_frame_local_sam_ids_flat)
+                    # FIXED: Process ALL local segments, not just those without propagated labels
+                    print(f"[DEBUG Tracker] Processing new objects for keyframe {frame.frame_id}")
+                    unique_local_ids = torch.unique(current_labels)
+                    new_objects_count = 0
+                    
                     for local_id_tensor in unique_local_ids:
                         local_id = local_id_tensor.item()
                         if local_id == 0: continue
-                        current_segment_mask = (current_frame_local_sam_ids_flat == local_id)
-                        # Check if any point in this segment still has global_id 0 (unassigned by propagation)
-                        if (frame.global_instance_ids.view(-1)[current_segment_mask] == 0).any(): # Check if *any* part of segment is new
-                             # More precise: if the majority/all are 0, or if it wasn't in local_id_to_global_id_candidates
-                            is_truly_new_segment = local_id not in local_id_to_global_id_candidates or \
-                                                   not local_id_to_global_id_candidates[local_id]
-
-                            if is_truly_new_segment or (frame.global_instance_ids.view(-1)[current_segment_mask] == 0).all():
+                        
+                        label_mask = (current_labels == local_id) & current_valid_mask
+                        if not label_mask.any():
+                            continue
+                            
+                        # Check if this segment needs a new global ID
+                        # Either it wasn't matched to previous keyframe OR it has unlabeled points
+                        unassigned_mask = label_mask & (frame.global_instance_ids.view(-1) == 0)
+                        
+                        if unassigned_mask.any():
+                            # This segment has unlabeled points - needs a global ID
+                            
+                            # Check if this is entirely new or partially propagated
+                            is_entirely_new = (frame.global_instance_ids[label_mask] == 0).all()
+                            
+                            if is_entirely_new:
+                                # Entirely new object - assign new global ID to all points
                                 new_global_id = self.g_next_global_id
-                                frame.global_instance_ids.view(-1)[current_segment_mask & (frame.global_instance_ids.view(-1) == 0)] = new_global_id
+                                frame.global_instance_ids[label_mask] = new_global_id
                                 class_name = frame.local_id_to_class_label_map.get(local_id, f"unclassified_local_id_{local_id}")
                                 self.g_global_id_to_class_label_map[new_global_id] = class_name
+                                self.label_confidences[new_global_id] = 45.0
                                 self.g_next_global_id += 1
+                                new_objects_count += 1
+                                
+                                labeled_count = label_mask.sum().item()
+                                print(f"[DEBUG Tracker] New object - Label {local_id} ({class_name}): {labeled_count} points with global ID {new_global_id}")
+                            else:
+                                # Partially propagated - extend existing label to unlabeled parts
+                                # Find the most common non-zero global ID in this segment
+                                segment_global_ids = frame.global_instance_ids[label_mask].view(-1)
+                                non_zero_ids = segment_global_ids[segment_global_ids > 0]
+                                
+                                if non_zero_ids.numel() > 0:
+                                    # Use mode to find most common ID
+                                    most_common_id = non_zero_ids.mode()[0].item()
+                                    frame.global_instance_ids[unassigned_mask] = most_common_id
+                                    extended_count = unassigned_mask.sum().item()
+                                    print(f"[DEBUG Tracker] Extended existing label {most_common_id} to {extended_count} additional points")
+                    
+                    print(f"[DEBUG Tracker] Keyframe {frame.frame_id}: Added {new_objects_count} new objects after propagation")
                 elif frame.local_instance_mask is not None: # Is a new keyframe, but no prior keyframe to propagate from (e.g. first frame)
                     print(f"[Tracker INFO] New keyframe {frame.frame_id} is the first or has no prior KF with global IDs. Initializing from its own SAM.")
-                    current_frame_local_sam_ids_flat = frame.local_instance_mask.view(-1)
-                    if current_frame_local_sam_ids_flat.numel() == num_points_current_frame:
-                        unique_local_ids = torch.unique(current_frame_local_sam_ids_flat)
-                        for local_id_tensor in unique_local_ids:
-                            local_id = local_id_tensor.item()
-                            if local_id == 0: continue
+                    
+                    # Use improved semantic mapper
+                    labels, valid_mask = self.semantic_mapper.map_2d_labels_to_3d_points(
+                        semantic_mask=frame.local_instance_mask,
+                        confidence_map=frame.C if hasattr(frame, 'C') and frame.C is not None else None,
+                        num_points=num_points_current_frame,
+                        frame_shape=(frame.local_instance_mask.shape[0], frame.local_instance_mask.shape[1]),
+                        confidence_threshold=1.5  # Lower threshold for better coverage
+                    )
+                    
+                    # Assign global IDs
+                    unique_local_ids = torch.unique(labels)
+                    for local_id_tensor in unique_local_ids:
+                        local_id = local_id_tensor.item()
+                        if local_id == 0: continue
+                        
+                        label_mask = (labels == local_id) & valid_mask
+                        if label_mask.any():
                             new_global_id = self.g_next_global_id
-                            frame.global_instance_ids.view(-1)[current_frame_local_sam_ids_flat == local_id] = new_global_id
+                            frame.global_instance_ids[label_mask] = new_global_id
                             class_name = frame.local_id_to_class_label_map.get(local_id, f"unclassified_local_id_{local_id}")
                             self.g_global_id_to_class_label_map[new_global_id] = class_name
+                            self.label_confidences[new_global_id] = 50.0  # Default confidence
                             self.g_next_global_id += 1
-                    else:
-                        print(f"[Tracker WARN] KF {frame.frame_id} local_mask numel mismatch with points. Cannot init global IDs.")
+                            
+                            labeled_count = label_mask.sum().item()
+                            print(f"[DEBUG Tracker] KF {frame.frame_id} - Label {local_id} ({class_name}): {labeled_count} points labeled")
+                    
+                    # Apply 3D refinement
+                    if frame.X_canon is not None and frame.global_instance_ids.sum() > 0:
+                        print(f"[DEBUG Tracker] Applying 3D refinement for keyframe {frame.frame_id}")
+                        refined_labels = self.semantic_mapper.refine_labels_with_3d_proximity(
+                            points_3d=frame.X_canon,
+                            labels=frame.global_instance_ids.view(-1),
+                            label_confidences=self.label_confidences,
+                            distance_threshold=0.1,
+                            min_neighbors=3
+                        )
+                        frame.global_instance_ids = refined_labels.view(-1, 1)
+                        
+                # Log final statistics for new keyframe
+                if frame.global_instance_ids is not None:
+                    non_background = (frame.global_instance_ids != 0).sum().item()
+                    total_points = frame.global_instance_ids.numel()
+                    unique_labels = torch.unique(frame.global_instance_ids)
+                    print(f"[DEBUG Tracker] Keyframe {frame.frame_id} final stats:")
+                    print(f"  - Total points: {total_points}")
+                    print(f"  - Labeled points: {non_background} ({non_background/total_points*100:.1f}%)")
+                    print(f"  - Unique labels: {unique_labels.tolist()}")
+                    print(f"  - Global semantic map size: {len(self.g_global_id_to_class_label_map)} classes")
+                    print(f"  - Global semantic map: {self.g_global_id_to_class_label_map}")
             else: # frame.X_canon is None, should not happen if update_pointmap was called
                  print(f"[Tracker WARN] New keyframe {frame.frame_id} has no X_canon. Cannot assign global_instance_ids.")
 
             self.reset_idx_f2k() # Reset for next tracking sequence against this new KF
 
         else: # This is an INTERMEDIATE frame, not a new keyframe
+            print(f"[Tracker INFO] Frame {frame.frame_id} is an intermediate frame (not keyframe)")
             # Propagate global_instance_ids from the last keyframe (last_kf_for_propagation)
             # using idx_f2k (which maps current frame points to last_kf_for_propagation points)
             if last_kf_for_propagation is not None and \
@@ -351,11 +574,33 @@ class FrameTracker:
                     frame.global_instance_ids = torch.zeros(num_points_current_frame, 1, dtype=torch.int64, device=self.device)
                     last_kf_global_ids_flat = last_kf_for_propagation.global_instance_ids.view(-1)
 
+                    # Count how many points will get labels
+                    labeled_count = 0
                     for p_curr_idx in range(num_points_current_frame):
                         p_kf_idx = idx_f2k[p_curr_idx].item()
                         if 0 <= p_kf_idx < num_points_last_kf:
                             frame.global_instance_ids.view(-1)[p_curr_idx] = last_kf_global_ids_flat[p_kf_idx]
-                    # print(f"[Tracker DBG] Propagated global IDs to intermediate frame {frame.frame_id} from KF {last_kf_for_propagation.frame_id}")
+                            if last_kf_global_ids_flat[p_kf_idx] > 0:  # Non-background
+                                labeled_count += 1
+                    
+                    # Try to propagate high-confidence labels to nearby unlabeled points
+                    if frame.X_canon is not None and labeled_count > 0:
+                        print(f"[Tracker INFO] Propagating high-confidence labels to nearby points...")
+                        updated_labels = self.semantic_mapper.propagate_high_confidence_labels(
+                            points_3d=frame.X_canon,
+                            labels=frame.global_instance_ids.view(-1),
+                            confidences=torch.full((num_points_current_frame,), 60.0, device=self.device),  # Assume propagated labels have good confidence
+                            propagation_radius=0.05,
+                            confidence_threshold=50.0
+                        )
+                        
+                        new_labeled_count = (updated_labels > 0).sum().item()
+                        if new_labeled_count > labeled_count:
+                            frame.global_instance_ids = updated_labels.view(-1, 1)
+                            print(f"[Tracker INFO] Propagation increased labeled points from {labeled_count} to {new_labeled_count}")
+                            labeled_count = new_labeled_count
+                    
+                    print(f"[Tracker DBG] Propagated global IDs to intermediate frame {frame.frame_id} from KF {last_kf_for_propagation.frame_id}: {labeled_count}/{num_points_current_frame} points labeled")
                 else:
                     # print(f"[Tracker WARN] Cannot propagate global IDs to intermediate frame {frame.frame_id}: Mismatch in keyframe data or idx_f2k.")
                     # frame.global_instance_ids remains zeros or None
