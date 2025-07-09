@@ -44,6 +44,58 @@ class FrameTracker:
     # Initialize with identity indexing of size (1,n)
     def reset_idx_f2k(self):
         self.idx_f2k = None
+    
+    def propagate_semantics_from_keyframe(self, frame, keyframe, idx_f2k, valid_match_k):
+        """Propagate semantic labels using existing point correspondences.
+        
+        Args:
+            frame: Current frame
+            keyframe: Last keyframe with semantic labels
+            idx_f2k: Point correspondences from frame to keyframe
+            valid_match_k: Valid match mask
+            
+        Returns:
+            torch.Tensor: Propagated global instance IDs
+        """
+        # Initialize frame labels
+        num_points = frame.X_canon.shape[0]
+        frame.global_instance_ids = torch.zeros(num_points, 1, dtype=torch.int64, device=self.device)
+        
+        # Direct propagation using correspondences
+        valid_indices = torch.where(valid_match_k)[0]
+        
+        for idx in valid_indices:
+            kf_idx = idx_f2k[idx].item()
+            if 0 <= kf_idx < keyframe.global_instance_ids.shape[0]:
+                # Direct label transfer
+                frame.global_instance_ids[idx] = keyframe.global_instance_ids[kf_idx]
+        
+        # Handle unmatched points using spatial proximity
+        unmatched_mask = frame.global_instance_ids.squeeze() == 0
+        n_unmatched = unmatched_mask.sum().item()
+        
+        if n_unmatched > 0 and (~unmatched_mask).any():
+            # Use 3D proximity to matched points
+            matched_points = frame.X_canon[~unmatched_mask]
+            matched_labels = frame.global_instance_ids[~unmatched_mask]
+            
+            unmatched_points = frame.X_canon[unmatched_mask]
+            
+            # Find nearest matched point for each unmatched
+            distances = torch.cdist(unmatched_points, matched_points)
+            nearest_indices = distances.argmin(dim=1)
+            nearest_distances = distances.min(dim=1).values
+            
+            # Propagate if close enough (within 10cm)
+            close_mask = nearest_distances < 0.1
+            propagate_indices = torch.where(unmatched_mask)[0][close_mask]
+            frame.global_instance_ids[propagate_indices] = matched_labels[nearest_indices[close_mask]]
+            
+            n_propagated = close_mask.sum().item()
+            print(f"[Tracker] Propagated {len(valid_indices)} labels directly, "
+                  f"{n_propagated} via proximity (out of {n_unmatched} unmatched)")
+        
+        return frame.global_instance_ids
 
     def track(self, frame: Frame):
         keyframe = self.keyframes.last_keyframe()
@@ -609,16 +661,20 @@ class FrameTracker:
                          frame.global_instance_ids = torch.zeros(num_points_current_frame, 1, dtype=torch.int64, device=self.device)
 
 
+        # Create match info dictionary
+        match_info = {
+            'match_frac_k': match_frac_k,
+            'unique_frac_f': unique_frac_f,
+            'idx_f2k': idx_f2k,
+            'valid_match_k': valid_match_k,
+            'keyframe': keyframe,
+            'Qkf': Qkf,
+            'Qff': Qff
+        }
+        
         return (
             new_kf, # This is the boolean indicating if current frame became a keyframe
-            [
-                keyframe.X_canon,
-                keyframe.get_average_conf(),
-                frame.X_canon,
-                frame.get_average_conf(),
-                Qkf,
-                Qff,
-            ],
+            match_info,  # Return match info dict instead of list
             False,
         )
 

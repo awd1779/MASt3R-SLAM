@@ -61,6 +61,10 @@ class SemanticProcessorV2:
         self.device = device or SEMANTIC_DEVICE
         self.text_prompts = text_prompts or TEXT_PROMPTS
         
+        # Track last processed keyframe for adaptive processing
+        self.last_keyframe_data = None
+        self.last_keyframe_result = None
+        
         # Feature flags
         self.enable_batch_processing = enable_batch_processing
         self.enable_caching = enable_caching
@@ -500,6 +504,64 @@ class SemanticProcessorV2:
             summary['ensemble_performance'] = self.ensemble.get_performance_summary()
         
         return summary
+    
+    def should_run_full_segmentation(self, current_pose, last_keyframe_pose):
+        """Decide if full segmentation needed based on pose change.
+        
+        Args:
+            current_pose: Current frame's Sim3 pose (T_WC)
+            last_keyframe_pose: Last keyframe's Sim3 pose
+            
+        Returns:
+            bool: True if full segmentation needed
+        """
+        if last_keyframe_pose is None:
+            return True
+        
+        # Compute relative transformation
+        # T_rel = T_last^-1 * T_curr
+        T_rel = last_keyframe_pose.inv() * current_pose
+        
+        # Extract metrics from Sim3 transformation matrix
+        # Get the 4x4 matrix representation
+        T_rel_matrix = T_rel.matrix()  # Shape: (1, 4, 4)
+        
+        # Translation distance (last column, first 3 elements)
+        translation = T_rel_matrix[0, :3, 3]
+        translation_dist = translation.norm().item()
+        
+        # Rotation angle from rotation matrix
+        # Extract 3x3 rotation part
+        R = T_rel_matrix[0, :3, :3]
+        # Compute trace to get rotation angle
+        trace = R.trace()
+        # Clamp to avoid numerical issues
+        cos_angle = (trace - 1.0) / 2.0
+        cos_angle = torch.clamp(cos_angle, -1.0, 1.0)
+        rotation_angle = torch.acos(cos_angle).item()
+        
+        # Scale change from Sim3
+        # Scale is the determinant^(1/3) of the 3x3 part
+        scale = torch.det(R).pow(1/3).item()
+        scale_change = abs(scale - 1.0)
+        
+        # Adaptive thresholds
+        translation_threshold = 0.5  # meters
+        rotation_threshold = np.radians(30.0)  # 30 degrees in radians
+        scale_threshold = 0.1  # 10% scale change
+        
+        # Check if significant motion
+        needs_full_segmentation = (
+            translation_dist > translation_threshold or
+            rotation_angle > rotation_threshold or
+            scale_change > scale_threshold
+        )
+        
+        if not needs_full_segmentation:
+            print(f"[SemanticProcessorV2] Skipping full segmentation - small motion: "
+                  f"trans={translation_dist:.3f}m, rot={np.degrees(rotation_angle):.1f}°, scale={scale_change:.3f}")
+        
+        return needs_full_segmentation
     
     def shutdown(self):
         """Clean up resources."""

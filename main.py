@@ -399,6 +399,46 @@ if __name__ == "__main__":
 
         if mode == Mode.TRACKING:
             add_new_kf, match_info, try_reloc = tracker.track(frame)
+            
+            # Adaptive semantic processing for non-keyframes
+            if not add_new_kf and frame.img is not None:
+                last_kf = tracker.keyframes.last_keyframe()
+                
+                # Check if we should run full segmentation
+                should_segment = semantic_processor.should_run_full_segmentation(
+                    frame.T_WC, 
+                    last_kf.T_WC if last_kf else None
+                )
+                
+                if should_segment:
+                    # Run full semantic processing for significant motion
+                    print(f"[INFO main.py] Running full semantics for frame {frame.frame_id} due to significant motion")
+                    try:
+                        frame_data = {
+                            'image_tensor': frame.img.squeeze(0),
+                            'frame_id': frame.frame_id,
+                            'pose': frame.T_WC.matrix()[0] if hasattr(frame, 'T_WC') and frame.T_WC is not None else None
+                        }
+                        result = semantic_processor.process_frame(frame_data, mode='fast', use_cache=True)
+                        frame.local_instance_mask = result['local_instance_mask'].to(device)
+                        frame.local_id_to_class_label_map = result['local_id_to_class_map']
+                    except Exception as e:
+                        print(f"[ERROR main.py] Semantic processing failed for frame {frame.frame_id}: {e}")
+                        frame.local_instance_mask = None
+                        frame.local_id_to_class_label_map = None
+                else:
+                    # Propagate semantics from keyframe using correspondences
+                    match_quality = match_info.get('match_frac_k', 0.0)
+                    print(f"[INFO main.py] Propagating semantics for frame {frame.frame_id} (match quality: {match_quality:.2f})")
+                    
+                    if 'idx_f2k' in match_info and 'valid_match_k' in match_info:
+                        tracker.propagate_semantics_from_keyframe(
+                            frame,
+                            match_info['keyframe'],
+                            match_info['idx_f2k'][0],  # Remove batch dimension
+                            match_info['valid_match_k'][0]  # Remove batch dimension
+                        )
+            
             if try_reloc:
                 states.set_mode(Mode.RELOC)
             states.set_frame(frame)
