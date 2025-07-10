@@ -576,6 +576,18 @@ if __name__ == "__main__":
                 for label, stats in sorted(dense_result['label_stats'].items()):
                     logger.info(f"  {label}: {stats['count']:,} points ({stats['percentage']:.1f}%)")
             
+            # Create semantic overlay visualization
+            from mast3r_slam.semantic_overlay import create_semantic_overlay
+            
+            overlay_stats = create_semantic_overlay(
+                str(save_dir / f"{seq_name}.ply"),
+                str(save_dir / f"{seq_name}_semantic_dense.ply"),
+                str(save_dir / f"{seq_name}_semantic_overlay.ply"),
+                distance_threshold=0.005  # 5mm threshold
+            )
+            
+            logger.info(f"Overlay visualization: {overlay_stats['matched_points']:,}/{overlay_stats['total_points']:,} points ({overlay_stats['match_percentage']:.1f}%) have semantic colors")
+            
             # Save keyframe metadata for potential future use
             if keyframe_saver is not None:
                 keyframe_saver.save_metadata()
