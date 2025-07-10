@@ -17,9 +17,10 @@ logger = logging.getLogger('mast3r_slam.dense_reconstruction')
 class DenseSemanticReconstructorV2:
     """Create dense semantic point clouds with proper mask-depth alignment."""
     
-    def __init__(self, device: str = "cuda", debug: bool = True):
+    def __init__(self, device: str = "cuda", debug: bool = True, semantic_backend=None):
         self.device = device
         self.debug = debug
+        self.semantic_backend = semantic_backend
         self.label_colormap = self._create_colormap()
         
         # Debug directory
@@ -29,17 +30,20 @@ class DenseSemanticReconstructorV2:
         
     def _create_colormap(self):
         """Create a colormap for semantic labels."""
-        # Use distinct colors for common objects
+        # Keep background and unknown colors fixed
         colors = {
             0: np.array([128, 128, 128]),  # Background - gray
-            'person': np.array([255, 0, 0]),      # Red
-            'chair': np.array([0, 255, 0]),       # Green
-            'table': np.array([0, 0, 255]),       # Blue
-            'bottle': np.array([255, 255, 0]),    # Yellow
-            'car': np.array([255, 0, 255]),       # Magenta
             'unknown': np.array([200, 200, 200])  # Light gray
         }
         return colors
+    
+    def _get_instance_color(self, instance_id: int) -> np.ndarray:
+        """Get a distinct color for each instance ID using tab20 colormap."""
+        cmap = cm.get_cmap('tab20')
+        # Use modulo to handle more than 20 instances
+        color_idx = (instance_id - 1) % 20  # -1 because instance_id starts at 1
+        color = (np.array(cmap(color_idx)[:3]) * 255).astype(np.uint8)
+        return color
     
     def visualize_semantic_alignment(self, 
                                    keyframe,
@@ -65,7 +69,11 @@ class DenseSemanticReconstructorV2:
             
             mask = semantic_mask == label_id
             label_name = label_names.get(label_id, 'unknown')
-            color = self.label_colormap.get(label_name, self.label_colormap['unknown'])
+            # Use instance-based color
+            if label_id == 0:
+                color = self.label_colormap[0]
+            else:
+                color = self._get_instance_color(label_id)
             seg_viz[mask] = color
         
         # Create overlay (semi-transparent)
@@ -73,11 +81,51 @@ class DenseSemanticReconstructorV2:
         mask_any = semantic_mask > 0
         overlay[mask_any] = (0.6 * seg_viz[mask_any] + 0.4 * img_rgb[mask_any]).astype(np.uint8)
         
+        # Add labels on the segmented regions
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.6
+        thickness = 2
+        
+        # For each unique label, find its center and add text
+        for label_id in unique_labels:
+            if label_id == 0:  # Skip background
+                continue
+                
+            mask = semantic_mask == label_id
+            label_name = label_names.get(label_id, f'label_{label_id}')
+            
+            # Find contours to get the center of the mask
+            mask_uint8 = (mask * 255).astype(np.uint8)
+            contours, _ = cv2.findContours(mask_uint8, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            if contours:
+                # Get the largest contour
+                largest_contour = max(contours, key=cv2.contourArea)
+                M = cv2.moments(largest_contour)
+                
+                if M["m00"] != 0:
+                    # Calculate center of the contour
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    
+                    # Get text size to center it properly
+                    (text_width, text_height), baseline = cv2.getTextSize(label_name, font, font_scale, thickness)
+                    
+                    # Draw background rectangle for better visibility
+                    cv2.rectangle(overlay, 
+                                (cx - text_width//2 - 5, cy - text_height//2 - 5),
+                                (cx + text_width//2 + 5, cy + text_height//2 + 5),
+                                (0, 0, 0), -1)
+                    
+                    # Draw text in white
+                    cv2.putText(overlay, label_name, 
+                              (cx - text_width//2, cy + text_height//2),
+                              font, font_scale, (255, 255, 255), thickness)
+        
         # Create side-by-side image
         side_by_side = np.hstack([img_rgb, overlay])
         
         # Add titles
-        font = cv2.FONT_HERSHEY_SIMPLEX
         cv2.putText(side_by_side, "Original", (10, 25), font, 0.7, (255, 255, 255), 2)
         cv2.putText(side_by_side, "Semantic Segmentation", (w + 10, 25), font, 0.7, (255, 255, 255), 2)
         
@@ -90,8 +138,11 @@ class DenseSemanticReconstructorV2:
             label_name = label_names.get(label_id, f'label_{label_id}')
             percentage = (np.sum(semantic_mask == label_id) / (h * w)) * 100
             
-            # Draw color box
-            color = self.label_colormap.get(label_name, self.label_colormap['unknown'])
+            # Draw color box using instance color
+            if label_id == 0:
+                color = self.label_colormap[0]
+            else:
+                color = self._get_instance_color(label_id)
             # Convert numpy array to tuple for OpenCV
             color_bgr = tuple(int(c) for c in color[::-1])  # RGB to BGR
             cv2.rectangle(side_by_side, (x_offset, y_offset - 12), (x_offset + 25, y_offset + 3), color_bgr, -1)
@@ -249,6 +300,10 @@ class DenseSemanticReconstructorV2:
         global_label_mapping = {0: 'background'}
         next_global_id = 1
         
+        # Track instance numbering per class
+        class_instance_counters = {}  # base_label -> counter
+        track_id_to_instance_name = {}  # track_id -> instance_name
+        
         logger.info(f"Creating dense semantic reconstruction V2...")
         logger.info(f"Processing {len(keyframes)} keyframes")
         
@@ -277,23 +332,99 @@ class DenseSemanticReconstructorV2:
             )
             
             if len(points) > 0:
-                # Remap local labels to global IDs
+                # Remap local labels to global IDs with instance numbers
                 global_labels = np.zeros_like(labels)
-                for local_id, name in label_names.items():
-                    if local_id == 0:  # Skip background
-                        continue
-                    
-                    # Find or create global ID for this label name
-                    if name not in global_label_mapping.values():
-                        global_label_mapping[next_global_id] = name
-                        global_id = next_global_id
-                        next_global_id += 1
-                    else:
-                        global_id = [k for k, v in global_label_mapping.items() if v == name][0]
-                    
-                    # Remap
-                    mask = labels == local_id
-                    global_labels[mask] = global_id
+                
+                # If we have semantic backend, use track information for instance numbers
+                if self.semantic_backend:
+                    # Get keyframe semantics from backend
+                    backend_semantics = self.semantic_backend.keyframe_semantics.get(kf_idx)
+                    if backend_semantics:
+                        backend_labels, _ = backend_semantics
+                        
+                        # For each local label, get its track info with instance number
+                        for local_id, name in label_names.items():
+                            if local_id == 0:  # Skip background
+                                continue
+                            
+                            # Find points with this local label
+                            mask = labels == local_id
+                            if not np.any(mask):
+                                continue
+                                
+                            # Get track ID from backend labels
+                            # Find the most common backend label for points with this local label
+                            backend_label_flat = backend_labels.cpu().numpy().reshape(-1)
+                            valid_indices = np.where(mask)[0]
+                            
+                            if len(valid_indices) > 0:
+                                # Map back to original image indices
+                                track_ids_for_label = []
+                                for idx in valid_indices[:100]:  # Sample first 100 points
+                                    if idx < len(backend_label_flat):
+                                        track_id = backend_label_flat[idx]
+                                        if track_id > 0:
+                                            track_ids_for_label.append(track_id)
+                                
+                                if track_ids_for_label:
+                                    # Get most common track ID
+                                    unique_tracks, counts = np.unique(track_ids_for_label, return_counts=True)
+                                    track_id = unique_tracks[np.argmax(counts)]
+                                    
+                                    # Get track history with instance number
+                                    track_info = self.semantic_backend.track_manager.get_track_history(int(track_id))
+                                    if track_info and 'label' in track_info:
+                                        # Create instance name with cleaner numbering
+                                        base_label = track_info['label']
+                                        
+                                        # Check if we've already assigned a name to this track
+                                        if track_id in track_id_to_instance_name:
+                                            instance_name = track_id_to_instance_name[track_id]
+                                        else:
+                                            # Assign new instance number for this class
+                                            if base_label not in class_instance_counters:
+                                                class_instance_counters[base_label] = 0
+                                            class_instance_counters[base_label] += 1
+                                            instance_name = f"{base_label}_{class_instance_counters[base_label]}"
+                                            track_id_to_instance_name[track_id] = instance_name
+                                        
+                                        # Find or create global ID for this instance
+                                        if instance_name not in global_label_mapping.values():
+                                            global_label_mapping[next_global_id] = instance_name
+                                            global_id = next_global_id
+                                            next_global_id += 1
+                                        else:
+                                            global_id = [k for k, v in global_label_mapping.items() if v == instance_name][0]
+                                        
+                                        # Remap
+                                        global_labels[mask] = global_id
+                                        continue
+                            
+                            # Fallback if no track info found
+                            if name not in global_label_mapping.values():
+                                global_label_mapping[next_global_id] = name
+                                global_id = next_global_id
+                                next_global_id += 1
+                            else:
+                                global_id = [k for k, v in global_label_mapping.items() if v == name][0]
+                            global_labels[mask] = global_id
+                else:
+                    # Original logic without semantic backend
+                    for local_id, name in label_names.items():
+                        if local_id == 0:  # Skip background
+                            continue
+                        
+                        # Find or create global ID for this label name
+                        if name not in global_label_mapping.values():
+                            global_label_mapping[next_global_id] = name
+                            global_id = next_global_id
+                            next_global_id += 1
+                        else:
+                            global_id = [k for k, v in global_label_mapping.items() if v == name][0]
+                        
+                        # Remap
+                        mask = labels == local_id
+                        global_labels[mask] = global_id
                 
                 all_points.append(points)
                 all_colors.append(colors)
@@ -317,16 +448,23 @@ class DenseSemanticReconstructorV2:
         if use_semantic_colors:
             semantic_colors = np.zeros_like(all_colors)
             for label_id, label_name in global_label_mapping.items():
-                if label_id == 0:  # Skip background
-                    continue
-                mask = all_labels == label_id
-                color = self.label_colormap.get(label_name, self.label_colormap['unknown'])
-                semantic_colors[mask] = color
+                if label_id == 0:  # Background
+                    mask = all_labels == label_id
+                    semantic_colors[mask] = self.label_colormap[0]
+                else:
+                    mask = all_labels == label_id
+                    # Use instance-based color
+                    color = self._get_instance_color(label_id)
+                    semantic_colors[mask] = color
             all_colors = semantic_colors
         
         # Compute statistics
         unique_labels, counts = np.unique(all_labels, return_counts=True)
         label_stats = {}
+        
+        # Count objects by type
+        object_type_counts = {}  # base_label -> count
+        total_objects = 0
         
         logger.info("Final label distribution:")
         for label_id, count in zip(unique_labels, counts):
@@ -337,6 +475,24 @@ class DenseSemanticReconstructorV2:
                 'percentage': float(percentage)
             }
             logger.info(f"  {label_name}: {count} points ({percentage:.1f}%)")
+            
+            # Count object types (skip background)
+            if label_id > 0 and label_name != 'unknown':
+                total_objects += 1
+                # Extract base label from instance name
+                base_label = label_name.split('_')[0] if '_' in label_name else label_name
+                if base_label not in object_type_counts:
+                    object_type_counts[base_label] = 0
+                object_type_counts[base_label] += 1
+        
+        # Log object summary
+        logger.info("\n" + "="*50)
+        logger.info("OBJECT SUMMARY:")
+        logger.info(f"Total unique objects in scene: {total_objects}")
+        logger.info("\nObject counts by type:")
+        for obj_type, count in sorted(object_type_counts.items()):
+            logger.info(f"  {obj_type}: {count} instance{'s' if count > 1 else ''}")
+        logger.info("="*50)
         
         return {
             'points': all_points,
@@ -345,7 +501,9 @@ class DenseSemanticReconstructorV2:
             'num_points': len(all_points),
             'num_keyframes': processed_keyframes,
             'label_mapping': global_label_mapping,
-            'label_stats': label_stats
+            'label_stats': label_stats,
+            'object_counts': object_type_counts,
+            'total_objects': total_objects
         }
     
     def save_dense_semantic_ply(self, 
@@ -387,10 +545,11 @@ def create_dense_semantic_reconstruction_v2(keyframes,
                                           output_path: str,
                                           confidence_threshold: float = 0.3,
                                           use_semantic_colors: bool = True,
-                                          debug: bool = True):
+                                          debug: bool = True,
+                                          semantic_backend=None):
     """High-level function to create and save dense semantic reconstruction with fixes."""
     
-    reconstructor = DenseSemanticReconstructorV2(debug=debug)
+    reconstructor = DenseSemanticReconstructorV2(debug=debug, semantic_backend=semantic_backend)
     
     # Create dense point cloud
     result = reconstructor.create_dense_semantic_pointcloud_v2(
@@ -419,8 +578,15 @@ def create_dense_semantic_reconstruction_v2(keyframes,
         f.write("=" * 50 + "\n")
         f.write(f"Total points: {result['num_points']:,}\n")
         f.write(f"Keyframes used: {result['num_keyframes']}\n")
-        f.write(f"\nLabel distribution:\n")
         
+        # Add object summary
+        f.write(f"\nOBJECT SUMMARY:\n")
+        f.write(f"Total unique objects: {result['total_objects']}\n")
+        f.write(f"\nObject counts by type:\n")
+        for obj_type, count in sorted(result['object_counts'].items()):
+            f.write(f"  {obj_type}: {count} instance{'s' if count > 1 else ''}\n")
+        
+        f.write(f"\nDetailed label distribution:\n")
         for label_name, stats in sorted(result['label_stats'].items()):
             f.write(f"  {label_name}: {stats['count']:,} points ({stats['percentage']:.1f}%)\n")
     

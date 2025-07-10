@@ -143,14 +143,31 @@ def save_semantic_reconstruction(savedir: str,
     else:
         colors = rgb_colors
     
-    # Get label names from track manager
+    # Get label names from track manager with instance numbers
     label_names = {}
     unique_labels = np.unique(semantic_labels)
+    
+    # Count instances per class for cleaner numbering
+    class_counters = {}
+    label_to_instance_num = {}
+    
+    # First pass: assign instance numbers per class
     for label in unique_labels:
         if label > 0:  # Skip background
             track_info = semantic_backend.track_manager.get_track_history(int(label))
             if track_info and 'label' in track_info:
-                label_names[int(label)] = track_info['label']
+                base_label = track_info['label']
+                
+                # Get or initialize counter for this class
+                if base_label not in class_counters:
+                    class_counters[base_label] = 0
+                class_counters[base_label] += 1
+                
+                # Store the instance number for this label
+                label_to_instance_num[int(label)] = class_counters[base_label]
+                
+                # Create label name with instance number
+                label_names[int(label)] = f"{base_label}_{class_counters[base_label]}"
     
     # Save PLY file
     save_semantic_ply(
@@ -161,6 +178,20 @@ def save_semantic_reconstruction(savedir: str,
         label_names
     )
     
+    # Count objects by type
+    object_type_counts = {}
+    total_objects = 0
+    
+    for label in unique_labels:
+        if label > 0:  # Skip background
+            name = label_names.get(int(label), f"unknown_{label}")
+            if name != 'unknown' and not name.startswith('unknown_'):
+                total_objects += 1
+                base_label = name.split('_')[0] if '_' in name else name
+                if base_label not in object_type_counts:
+                    object_type_counts[base_label] = 0
+                object_type_counts[base_label] += 1
+    
     # Save additional statistics
     stats_file = savedir / f"{filename.split('.')[0]}_stats.txt"
     with open(stats_file, 'w') as f:
@@ -170,15 +201,26 @@ def save_semantic_reconstruction(savedir: str,
         f.write(f"Labeled points: {(semantic_labels > 0).sum()}\n")
         f.write(f"Unique instances: {len(unique_labels) - 1}\n")  # Exclude background
         f.write(f"Average semantic confidence: {semantic_confidences[semantic_labels > 0].mean():.3f}\n")
+        
+        f.write(f"\nOBJECT SUMMARY:\n")
+        f.write(f"Total unique objects: {total_objects}\n")
+        f.write(f"\nObject counts by type:\n")
+        for obj_type, count in sorted(object_type_counts.items()):
+            f.write(f"  {obj_type}: {count} instance{'s' if count > 1 else ''}\n")
+        
         f.write("\nLabel distribution:\n")
         for label in unique_labels:
             count = (semantic_labels == label).sum()
             percentage = count / len(semantic_labels) * 100
-            name = label_names.get(int(label), "background" if label == 0 else "unknown")
+            name = label_names.get(int(label), "background" if label == 0 else f"unknown_{label}")
             f.write(f"  {label} ({name}): {count} points ({percentage:.1f}%)\n")
     
     print(f"Saved semantic reconstruction to {savedir / filename}")
     print(f"Total points: {len(pointclouds)}, Labeled: {(semantic_labels > 0).sum()}")
+    print(f"Total unique objects: {total_objects}")
+    print("Object counts by type:")
+    for obj_type, count in sorted(object_type_counts.items()):
+        print(f"  {obj_type}: {count} instance{'s' if count > 1 else ''}")
     
 
 def generate_semantic_colors(labels: np.ndarray, 

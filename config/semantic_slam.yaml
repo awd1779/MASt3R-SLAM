@@ -20,7 +20,7 @@ semantic_segmentation:
     confidence_threshold: 0.35
   
   # Initial Vocabulary (can be updated dynamically via API)
-  initial_vocabulary: ["monitor", "chair", "table", "car", "bottle", "container", "headset"]
+  initial_vocabulary: ["monitor", "chair", "table", "bottle", "container", "headset", "bag", "rubbish bin", "laptop", "floor", "coffee cup", "mouse" ]
      
   # Backend settings
   backend:

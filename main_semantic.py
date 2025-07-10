@@ -541,18 +541,6 @@ if __name__ == "__main__":
             
             logger.info(f"Saved sparse semantic reconstruction to {save_dir}/{seq_name}_semantic_sparse.ply")
             
-            # Also save sparse semantic with RGB colors for debugging
-            save_semantic_reconstruction(
-                save_dir,
-                f"{seq_name}_semantic_sparse_rgb.ply",
-                keyframes,
-                semantic_backend,
-                last_msg.C_conf_threshold,
-                use_semantic_colors=False  # Keep original RGB colors
-            )
-            
-            logger.info(f"Saved sparse semantic reconstruction with RGB colors to {save_dir}/{seq_name}_semantic_sparse_rgb.ply")
-            
             # Export dense semantic point cloud
             from mast3r_slam.dense_semantic_reconstruction_v2 import create_dense_semantic_reconstruction_v2
             
@@ -566,7 +554,8 @@ if __name__ == "__main__":
                 str(save_dir / f"{seq_name}_semantic_dense.ply"),
                 confidence_threshold=0.3,
                 use_semantic_colors=True,
-                debug=True
+                debug=True,
+                semantic_backend=semantic_backend
             )
             
             if dense_result:
@@ -592,19 +581,8 @@ if __name__ == "__main__":
             if keyframe_saver is not None:
                 keyframe_saver.save_metadata()
             
-            # Save semantic keyframes with overlays
-            from mast3r_slam.save_semantic_keyframes import save_semantic_keyframes, create_semantic_stats
-            
-            save_semantic_keyframes(
-                save_dir / "semantic_keyframes" / seq_name,
-                dataset.timestamps,
-                keyframes,
-                semantic_keyframes,
-                semantic_backend,
-                visualize_mode="both"  # Save both overlay and side-by-side
-            )
-            
             # Generate and save statistics
+            from mast3r_slam.save_semantic_keyframes import create_semantic_stats
             stats = create_semantic_stats(semantic_keyframes, semantic_backend, len(keyframes))
             stats_file = save_dir / f"{seq_name}_semantic_stats.json"
             import json
