@@ -10,6 +10,7 @@ import tqdm
 import yaml
 from pathlib import Path
 from mast3r_slam.global_opt import FactorGraph
+import logging
 
 from mast3r_slam.config import load_config, config, set_global_config
 from mast3r_slam.dataloader import Intrinsics, load_dataset
@@ -33,6 +34,32 @@ from mast3r_slam.grounded_sam2_real import start_real_grounded_sam2_processor
 from mast3r_slam.grounded_sam2_config import GroundedSAM2ModelSelector
 
 
+def setup_logging(verbose=False):
+    """Configure logging with controlled verbosity."""
+    level = logging.INFO if verbose else logging.WARNING
+    
+    # Configure root logger
+    logging.basicConfig(
+        level=level,
+        format='%(message)s'  # Simple format to match print statements
+    )
+    
+    # Create loggers
+    logger = logging.getLogger('mast3r_slam')
+    logger.setLevel(level)
+    
+    # Suppress verbose third-party loggers
+    logging.getLogger('PIL').setLevel(logging.WARNING)
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    logging.getLogger('torch').setLevel(logging.WARNING)
+    
+    return logger
+
+
+# Global logger
+logger = logging.getLogger('mast3r_slam')
+
+
 def relocalization(frame, keyframes, factor_graph, retrieval_database):
     # we are adding and then removing from the keyframe, so we need to be careful.
     # The lock slows viz down but safer this way...
@@ -51,7 +78,7 @@ def relocalization(frame, keyframes, factor_graph, retrieval_database):
             n_kf = len(keyframes)
             kf_idx = list(kf_idx)  # convert to list
             frame_idx = [n_kf - 1] * len(kf_idx)
-            print("RELOCALIZING against kf ", n_kf - 1, " and ", kf_idx)
+            logger.info(f"RELOCALIZING against kf {n_kf - 1} and {kf_idx}")
             if factor_graph.add_factors(
                 frame_idx,
                 kf_idx,
@@ -64,12 +91,12 @@ def relocalization(frame, keyframes, factor_graph, retrieval_database):
                     k=config["retrieval"]["k"],
                     min_thresh=config["retrieval"]["min_thresh"],
                 )
-                print("Success! Relocalized")
+                logger.info("Success! Relocalized")
                 successful_loop_closure = True
                 keyframes.T_WC[n_kf - 1] = keyframes.T_WC[kf_idx[0]].clone()
             else:
                 keyframes.pop_last()
-                print("Failed to relocalize")
+                logger.info("Failed to relocalize")
 
         if successful_loop_closure:
             if config["use_calib"]:
@@ -146,7 +173,7 @@ def run_backend(cfg, model, states, keyframes, semantic_keyframes, semantic_resu
                 states.edges_jj.append(
                     factor_graph.jj.cpu().numpy()
                 )
-        print(
+        logger.info(
             f"KF {idx} | Matching | #factors: {len(factor_graph.ii)}, #frames {len(keyframes)}"
         )
 
@@ -169,12 +196,16 @@ if __name__ == "__main__":
     parser.add_argument("--save-as", default="default")
     parser.add_argument("--no-viz", action="store_true")
     parser.add_argument("--calib", default="")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
 
     args = parser.parse_args()
 
+    # Setup logging based on verbose flag
+    logger = setup_logging(verbose=args.verbose)
+    
     load_config(args.config)
-    print(args.dataset)
-    print(config)
+    logger.info(f"Dataset: {args.dataset}")
+    logger.debug(f"Config: {config}")
 
     manager = mp.Manager()
     main2viz = new_queue(manager, args.no_viz)
@@ -207,21 +238,21 @@ if __name__ == "__main__":
     keyframe_saver = None
     
     if config.get("semantic_segmentation", {}).get("enabled", False):
-        print("Initializing semantic segmentation...")
+        logger.info("Initializing semantic segmentation...")
         semantic_keyframes = SharedSemanticKeyframes(manager, max_keyframes=1000, h=h, w=w)
         semantic_frame_queue = manager.Queue()
         semantic_result_queue = manager.Queue()
         
         # Get initial vocabulary from config
         vocabulary = config["semantic_segmentation"].get("initial_vocabulary", 
-                                                         ["person", "chair", "table", "car", "bottle"])
+                                                         ["chair", "table", "car", "bottle"])
         
         # Get device and model settings
         semantic_device = config["semantic_segmentation"]["grounded_sam2"].get("device", "cuda:1")
         use_mock = config["semantic_segmentation"].get("use_mock", False)
         
         if use_mock:
-            print("Using mock semantic processor")
+            logger.info("Using mock semantic processor")
             # Start mock semantic processor
             semantic_processor = start_semantic_processor(
                 semantic_frame_queue, 
@@ -230,7 +261,7 @@ if __name__ == "__main__":
                 semantic_device
             )
         else:
-            print("Using real Grounded-SAM2 processor")
+            logger.info("Using real Grounded-SAM2 processor")
             # Configure model selector based on config
             model_selector = GroundedSAM2ModelSelector(
                 target_fps=15,
@@ -277,7 +308,7 @@ if __name__ == "__main__":
     use_calib = config["use_calib"]
 
     if use_calib and not has_calib:
-        print("[Warning] No calibration provided for this dataset!")
+        logger.warning("No calibration provided for this dataset!")
         sys.exit(0)
     K = None
     if use_calib:
@@ -414,7 +445,7 @@ if __name__ == "__main__":
         # log time
         if i % 30 == 0:
             FPS = i / (time.time() - fps_timer)
-            print(f"FPS: {FPS}")
+            logger.info(f"FPS: {FPS}")
         i += 1
 
     # Terminate semantic processor
@@ -449,18 +480,18 @@ if __name__ == "__main__":
             # Process all semantic results from queue
             processed_count = 0
             queue_size = semantic_result_queue.qsize()
-            print(f"Semantic result queue has {queue_size} items")
+            logger.info(f"Semantic result queue has {queue_size} items")
             
             # Also check if backend already processed them
             n_keyframes = len(keyframes)
-            print(f"Total keyframes: {n_keyframes}")
+            logger.info(f"Total keyframes: {n_keyframes}")
             
             while True:
                 try:
                     semantic_data = semantic_result_queue.get_nowait()
                     frame_id = semantic_data['frame_id']
                     n_instances = len(semantic_data.get('instance_ids', []))
-                    print(f"Processing semantic frame {frame_id} with {n_instances} instances")
+                    logger.debug(f"Processing semantic frame {frame_id} with {n_instances} instances")
                     
                     # Find corresponding keyframe
                     found = False
@@ -469,9 +500,9 @@ if __name__ == "__main__":
                             kf = keyframes[kf_idx]
                             # frame_id in Frame is accessed via dataset_idx attribute
                             if kf and hasattr(kf, 'frame_id') and int(kf.frame_id) == int(frame_id):
-                                print(f"  Updating semantics for kf_idx={kf_idx}")
+                                logger.debug(f"  Updating semantics for kf_idx={kf_idx}")
                                 semantic_keyframes.update_semantics(kf_idx, semantic_data)
-                                print(f"  Processing semantic keyframe")
+                                logger.debug(f"  Processing semantic keyframe")
                                 semantic_backend.process_semantic_keyframe(kf_idx)
                                 
                                 # Save semantic data with keyframe
@@ -479,23 +510,24 @@ if __name__ == "__main__":
                                     keyframe_saver.save_keyframe(kf_idx, kf, semantic_data)
                                 
                                 processed_count += 1
-                                print(f"✓ Processed semantic data for frame {frame_id} -> keyframe {kf_idx}")
+                                logger.info(f"✓ Processed semantic data for frame {frame_id} -> keyframe {kf_idx}")
                                 found = True
                                 break
                         except Exception as e:
-                            print(f"  Error at kf_idx={kf_idx}: {e}")
-                            import traceback
-                            traceback.print_exc()
+                            logger.error(f"  Error at kf_idx={kf_idx}: {e}")
+                            if logger.isEnabledFor(logging.DEBUG):
+                                import traceback
+                                traceback.print_exc()
                             raise
                     
                     if not found:
-                        print(f"⚠ No keyframe found for semantic frame {frame_id}")
+                        logger.debug(f"⚠ No keyframe found for semantic frame {frame_id}")
                 except Exception as e:
                     if "empty" not in str(e).lower():
-                        print(f"Error processing semantic queue: {e}")
+                        logger.error(f"Error processing semantic queue: {e}")
                     break
             
-            print(f"Processed {processed_count} semantic frames")
+            logger.info(f"Processed {processed_count} semantic frames")
             
             # Export semantic point cloud (sparse SLAM points)
             save_semantic_reconstruction(
@@ -507,59 +539,46 @@ if __name__ == "__main__":
                 use_semantic_colors=True
             )
             
-            print(f"Saved sparse semantic reconstruction to {save_dir}/{seq_name}_semantic_sparse.ply")
+            logger.info(f"Saved sparse semantic reconstruction to {save_dir}/{seq_name}_semantic_sparse.ply")
             
-            # Export dense semantic point cloud
-            from mast3r_slam.dense_semantic_reconstruction import create_dense_semantic_reconstruction
-            from mast3r_slam.dense_semantic_reconstruction_v2 import create_dense_semantic_reconstruction_v2
-            
-            # Try the original version first
-            dense_result = create_dense_semantic_reconstruction(
+            # Also save sparse semantic with RGB colors for debugging
+            save_semantic_reconstruction(
+                save_dir,
+                f"{seq_name}_semantic_sparse_rgb.ply",
                 keyframes,
-                semantic_keyframes,
                 semantic_backend,
-                str(save_dir / f"{seq_name}_semantic_dense.ply"),
-                confidence_threshold=0.3,
-                use_semantic_colors=True
+                last_msg.C_conf_threshold,
+                use_semantic_colors=False  # Keep original RGB colors
             )
             
-            # Also try the fixed V2 version
-            print("\n" + "="*60)
-            print("Running Dense Semantic Reconstruction V2 (with fixes)")
-            print("="*60)
+            logger.info(f"Saved sparse semantic reconstruction with RGB colors to {save_dir}/{seq_name}_semantic_sparse_rgb.ply")
             
-            dense_result_v2 = create_dense_semantic_reconstruction_v2(
+            # Export dense semantic point cloud
+            from mast3r_slam.dense_semantic_reconstruction_v2 import create_dense_semantic_reconstruction_v2
+            
+            logger.info("\n" + "="*60)
+            logger.info("Creating Dense Semantic Reconstruction")
+            logger.info("="*60)
+            
+            dense_result = create_dense_semantic_reconstruction_v2(
                 keyframes,
                 semantic_keyframes,
-                str(save_dir / f"{seq_name}_semantic_dense_v2_fixed.ply"),
+                str(save_dir / f"{seq_name}_semantic_dense.ply"),
                 confidence_threshold=0.3,
                 use_semantic_colors=True,
                 debug=True
             )
             
             if dense_result:
-                print(f"\nDense semantic reconstruction summary:")
-                print(f"  Total points: {dense_result['num_points']:,}")
-                print(f"  Points per keyframe: {dense_result['num_points'] // dense_result['num_keyframes']:,}")
+                logger.info(f"\nDense semantic reconstruction summary:")
+                logger.info(f"  Total points: {dense_result['num_points']:,}")
+                logger.info(f"  Points per keyframe: {dense_result['num_points'] // dense_result['num_keyframes']:,}")
                 for label, stats in sorted(dense_result['label_stats'].items()):
-                    print(f"  {label}: {stats['count']:,} points ({stats['percentage']:.1f}%)")
+                    logger.info(f"  {label}: {stats['count']:,} points ({stats['percentage']:.1f}%)")
             
-            # Also build dense cloud from saved keyframe data
+            # Save keyframe metadata for potential future use
             if keyframe_saver is not None:
-                print("\n" + "="*60)
-                print("Building dense cloud from saved keyframe data...")
-                print("="*60)
-                
-                # Save metadata first
                 keyframe_saver.save_metadata()
-                
-                # Build dense cloud
-                from mast3r_slam.keyframe_saver import DenseSemanticBuilder
-                builder = DenseSemanticBuilder(save_dir / "keyframe_data")
-                dense_points = builder.build_dense_cloud(
-                    str(save_dir / f"{seq_name}_semantic_dense_v2.ply"),
-                    use_semantic_colors=True
-                )
             
             # Save semantic keyframes with overlays
             from mast3r_slam.save_semantic_keyframes import save_semantic_keyframes, create_semantic_stats
@@ -574,17 +593,17 @@ if __name__ == "__main__":
             )
             
             # Generate and save statistics
-            stats = create_semantic_stats(semantic_keyframes, semantic_backend)
+            stats = create_semantic_stats(semantic_keyframes, semantic_backend, len(keyframes))
             stats_file = save_dir / f"{seq_name}_semantic_stats.json"
             import json
             with open(stats_file, 'w') as f:
                 json.dump(stats, f, indent=2, default=str)
             
-            print(f"Semantic statistics:")
-            print(f"  Keyframes with semantics: {stats['keyframes_with_semantics']}/{stats['total_keyframes']}")
-            print(f"  Average instances per frame: {stats['avg_instances_per_frame']:.1f}")
-            print(f"  Unique labels: {stats['unique_labels']}")
-            print(f"  Coverage: {stats['coverage_percentage']:.1f}%")
+            logger.info(f"Semantic statistics:")
+            logger.info(f"  Keyframes with semantics: {stats['keyframes_with_semantics']}/{stats['total_keyframes']}")
+            logger.info(f"  Average instances per frame: {stats['avg_instances_per_frame']:.1f}")
+            logger.info(f"  Unique labels: {stats['unique_labels']}")
+            logger.info(f"  Coverage: {stats['coverage_percentage']:.1f}%")
         
         eval.save_keyframes(
             save_dir / "keyframes" / seq_name, dataset.timestamps, keyframes
@@ -597,7 +616,7 @@ if __name__ == "__main__":
             frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
             cv2.imwrite(f"{savedir}/{i}.png", frame)
 
-    print("done")
+    logger.info("done")
     backend.join()
     if not args.no_viz:
         viz.join()

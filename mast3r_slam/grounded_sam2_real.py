@@ -10,10 +10,13 @@ from typing import Optional, Dict, List, Tuple
 import torch.multiprocessing as mp
 from queue import Empty
 from pathlib import Path
+import logging
 
 from mast3r_slam.semantic_frame import encode_rle
 from mast3r_slam.config import config
 from mast3r_slam.grounded_sam2_config import SAM2_MODELS, GROUNDING_MODELS, GroundedSAM2ModelSelector
+
+logger = logging.getLogger('mast3r_slam.grounded_sam2')
 
 
 class RealGroundedSAM2Processor:
@@ -91,8 +94,8 @@ class RealGroundedSAM2Processor:
             Path.cwd().parent / "models",
         ])
             
-        # Debug: print search paths
-        print(f"Searching for models in: {[str(p) for p in search_paths[:3]]}")
+        # Debug: log search paths
+        logger.debug(f"Searching for models in: {[str(p) for p in search_paths[:3]]}")
             
         # SAM2 model info
         sam2_info = SAM2_MODELS[self.sam2_model_name]
@@ -123,14 +126,14 @@ class RealGroundedSAM2Processor:
             
             for sam2_dir in sam2_dirs:
                 if sam2_dir.exists():
-                    print(f"  Checking SAM2 dir: {sam2_dir}")
+                    logger.debug(f"  Checking SAM2 dir: {sam2_dir}")
                     # Look for checkpoint
                     ckpt_files = sam2_filenames.get(self.sam2_model_name, [])
                     if not isinstance(ckpt_files, list):
                         ckpt_files = [ckpt_files]
                     
                     for ckpt_file in ckpt_files:
-                        print(f"    Looking for: {ckpt_file}")
+                        logger.debug(f"    Looking for: {ckpt_file}")
                         ckpt_paths = [
                             sam2_dir / "checkpoints" / ckpt_file,
                             sam2_dir / ckpt_file,
@@ -139,7 +142,7 @@ class RealGroundedSAM2Processor:
                         for ckpt_path in ckpt_paths:
                             if ckpt_path.exists():
                                 sam2_checkpoint = str(ckpt_path)
-                                print(f"  ✓ Found SAM2 checkpoint: {sam2_checkpoint}")
+                                logger.info(f"  ✓ Found SAM2 checkpoint: {sam2_checkpoint}")
                                 break
                         if sam2_checkpoint:
                             break
@@ -199,7 +202,7 @@ class RealGroundedSAM2Processor:
             use_mock = config.get("semantic_segmentation", {}).get("use_mock", False)
             
             if use_mock:
-                print("Using mock semantic processor (set use_mock=false for real models)")
+                logger.info("Using mock semantic processor (set use_mock=false for real models)")
                 return
                 
             # Fix Grounding DINO path
@@ -235,8 +238,8 @@ class RealGroundedSAM2Processor:
                     f"Please check GROUNDED_SAM2_INSTALLATION.md"
                 )
                 
-            print(f"\nLoading SAM2 model: {self.sam2_model_name}")
-            print(f"  Checkpoint: {sam2_ckpt}")
+            logger.info(f"Loading SAM2 model: {self.sam2_model_name}")
+            logger.info(f"  Checkpoint: {sam2_ckpt}")
             
             # Determine config name for SAM2
             if "b+" in self.sam2_model_name or "base_plus" in self.sam2_model_name:
@@ -250,7 +253,7 @@ class RealGroundedSAM2Processor:
             else:
                 config_name = "sam2_hiera_b+.yaml"
                 
-            print(f"  Config: {config_name}")
+            logger.debug(f"  Config: {config_name}")
             
             # Initialize SAM2 in IMAGE MODE for keyframe segmentation
             # We don't need video tracking between keyframes
@@ -261,8 +264,8 @@ class RealGroundedSAM2Processor:
             )
             self.sam2_predictor = SAM2ImagePredictor(sam2_model)
             
-            print(f"\nLoading Grounding DINO model: {self.grounding_model_name}")
-            print(f"  Checkpoint: {grounding_ckpt}")
+            logger.info(f"Loading Grounding DINO model: {self.grounding_model_name}")
+            logger.info(f"  Checkpoint: {grounding_ckpt}")
             
             # Find Grounding DINO config if not provided
             if not grounding_cfg:
@@ -280,12 +283,12 @@ class RealGroundedSAM2Processor:
                         break
                         
             if grounding_cfg and Path(grounding_cfg).exists():
-                print(f"  Config: {grounding_cfg}")
+                logger.debug(f"  Config: {grounding_cfg}")
                 # Initialize Grounding DINO - load_model expects config path as string
                 self.grounding_dino = load_model(grounding_cfg, grounding_ckpt, device=self.device)
                 self.grounding_dino.eval()
             else:
-                print("  Warning: Config file not found, trying to load without config")
+                logger.warning("Config file not found, trying to load without config")
                 # Try to load without config (may fail)
                 try:
                     self.grounding_dino = load_model(None, grounding_ckpt, device=self.device)
@@ -307,35 +310,36 @@ class RealGroundedSAM2Processor:
                 self.sam2_model_name, 
                 self.grounding_model_name
             )
-            print(f"\n✅ Models loaded successfully!")
-            print(f"  Total parameters: {model_info['combined']['total_params']}")
-            print(f"  Expected FPS: {model_info['combined']['expected_fps']}")
-            print(f"  Total VRAM: {model_info['combined']['total_vram']}")
+            logger.info("✅ Models loaded successfully!")
+            logger.info(f"  Total parameters: {model_info['combined']['total_params']}")
+            logger.info(f"  Expected FPS: {model_info['combined']['expected_fps']}")
+            logger.info(f"  Total VRAM: {model_info['combined']['total_vram']}")
             
         except ImportError as e:
-            print(f"Error: Required packages not installed: {e}")
-            print("Please follow GROUNDED_SAM2_INSTALLATION.md")
-            print("Setting models to None to use fallback")
+            logger.error(f"Required packages not installed: {e}")
+            logger.error("Please follow GROUNDED_SAM2_INSTALLATION.md")
+            logger.warning("Setting models to None to use fallback")
             self.grounding_dino = None
             self.sam2_predictor = None
         except FileNotFoundError as e:
-            print(f"Error: {e}")
-            print("Setting models to None to use fallback")
+            logger.error(f"Error: {e}")
+            logger.warning("Setting models to None to use fallback")
             self.grounding_dino = None
             self.sam2_predictor = None
         except Exception as e:
-            print(f"Error initializing models: {e}")
-            import traceback
-            traceback.print_exc()
-            print("Setting models to None to use fallback")
+            logger.error(f"Error initializing models: {e}")
+            if logger.isEnabledFor(logging.DEBUG):
+                import traceback
+                traceback.print_exc()
+            logger.warning("Setting models to None to use fallback")
             self.grounding_dino = None
             self.sam2_predictor = None
             
     def ground_objects_in_frame(self, image: np.ndarray) -> Tuple[torch.Tensor, List[str], torch.Tensor]:
         """Use Grounding DINO to detect objects based on text prompts."""
         if self.grounding_dino is None:
-            print("WARNING: Grounding DINO is None, using mock segmentation!")
-            print("This means the real model failed to load properly.")
+            logger.warning("Grounding DINO is None, using mock segmentation!")
+            logger.warning("This means the real model failed to load properly.")
             # Fallback to mock
             return self._mock_ground_objects(image)
             

@@ -9,6 +9,9 @@ from plyfile import PlyData, PlyElement
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from mast3r_slam.semantic_frame import decode_rle
+import logging
+
+logger = logging.getLogger('mast3r_slam.dense_reconstruction')
 
 
 class DenseSemanticReconstructorV2:
@@ -102,7 +105,7 @@ class DenseSemanticReconstructorV2:
         # Save the side-by-side visualization
         output_file = self.debug_dir / f"keyframe_{kf_idx:04d}_semantic.png"
         cv2.imwrite(str(output_file), cv2.cvtColor(side_by_side, cv2.COLOR_RGB2BGR))
-        print(f"  Saved visualization: {output_file.name}")
+        logger.debug(f"  Saved visualization: {output_file.name}")
     
     def project_semantic_keyframe_v2(self, 
                                    keyframe,
@@ -120,7 +123,7 @@ class DenseSemanticReconstructorV2:
         """
         # Get keyframe dimensions
         h, w = keyframe.img_shape[0, 0].item(), keyframe.img_shape[0, 1].item()
-        print(f"\n  Processing keyframe {kf_idx}: {w}x{h}")
+        logger.debug(f"  Processing keyframe {kf_idx}: {w}x{h}")
         
         # Get 3D points from MAST3R (camera coordinates)
         X_cam = keyframe.X_canon.cpu().numpy()  # Shape: (H*W, 3)
@@ -128,7 +131,7 @@ class DenseSemanticReconstructorV2:
         # Verify dimensions match
         expected_size = h * w
         if X_cam.shape[0] != expected_size:
-            print(f"  WARNING: X_cam size {X_cam.shape[0]} != expected {expected_size}")
+            logger.warning(f"X_cam size {X_cam.shape[0]} != expected {expected_size}")
             return np.array([]), np.array([]), np.array([]), {}
         
         # Get RGB image
@@ -142,7 +145,7 @@ class DenseSemanticReconstructorV2:
         
         # Process semantic data
         if semantic_data and 'masks_rle' in semantic_data:
-            print(f"  Found {len(semantic_data['masks_rle'])} instance masks")
+            logger.debug(f"  Found {len(semantic_data['masks_rle'])} instance masks")
             
             for instance_id, rle in semantic_data['masks_rle'].items():
                 if 'size' in rle:
@@ -152,12 +155,12 @@ class DenseSemanticReconstructorV2:
                     else:
                         mask_h, mask_w = size
                     
-                    print(f"    Instance {instance_id}: mask size {mask_w}x{mask_h}")
+                    logger.debug(f"    Instance {instance_id}: mask size {mask_w}x{mask_h}")
                     
                     # CRITICAL: Verify mask dimensions match keyframe
                     if (mask_h, mask_w) != (h, w):
-                        print(f"    ERROR: Mask size {mask_w}x{mask_h} != keyframe {w}x{h}")
-                        print(f"    Skipping this mask to avoid misalignment!")
+                        logger.error(f"Mask size {mask_w}x{mask_h} != keyframe {w}x{h}")
+                        logger.error(f"Skipping this mask to avoid misalignment!")
                         continue
                     
                     # Decode mask at original size
@@ -167,7 +170,7 @@ class DenseSemanticReconstructorV2:
                     label_name = semantic_data.get('labels', {}).get(instance_id, 'unknown')
                     confidence = semantic_data.get('confidences', {}).get(instance_id, 1.0)
                     
-                    print(f"    Label: {label_name}, Confidence: {confidence:.3f}")
+                    logger.debug(f"    Label: {label_name}, Confidence: {confidence:.3f}")
                     
                     # Only use high-confidence detections
                     if confidence >= confidence_threshold:
@@ -187,9 +190,9 @@ class DenseSemanticReconstructorV2:
                             pixels_labeled = mask.sum().item()
                         else:
                             pixels_labeled = np.sum(mask)
-                        print(f"    Applied label {label_id} ({label_name}) to {pixels_labeled} pixels")
+                        logger.debug(f"    Applied label {label_id} ({label_name}) to {pixels_labeled} pixels")
                     else:
-                        print(f"    Skipped due to low confidence")
+                        logger.debug(f"    Skipped due to low confidence")
         
         # Visualize for debugging
         self.visualize_semantic_alignment(keyframe, semantic_mask, kf_idx, label_id_to_name)
@@ -222,13 +225,13 @@ class DenseSemanticReconstructorV2:
         colors = img_rgb_flat[valid_mask]
         labels = semantic_mask_flat[valid_mask]
         
-        print(f"  Result: {len(points_3d)} labeled 3D points")
+        logger.debug(f"  Result: {len(points_3d)} labeled 3D points")
         
         # Print label distribution
         unique_labels, counts = np.unique(labels, return_counts=True)
         for label_id, count in zip(unique_labels, counts):
             label_name = label_id_to_name.get(label_id, f'unknown_{label_id}')
-            print(f"    {label_name}: {count} points")
+            logger.debug(f"    {label_name}: {count} points")
         
         return points_3d, colors, labels, label_id_to_name
     
@@ -246,8 +249,8 @@ class DenseSemanticReconstructorV2:
         global_label_mapping = {0: 'background'}
         next_global_id = 1
         
-        print(f"\nCreating dense semantic reconstruction V2...")
-        print(f"Processing {len(keyframes)} keyframes")
+        logger.info(f"Creating dense semantic reconstruction V2...")
+        logger.info(f"Processing {len(keyframes)} keyframes")
         
         # Process each keyframe
         processed_keyframes = 0
@@ -256,13 +259,13 @@ class DenseSemanticReconstructorV2:
         for kf_idx in range(len(keyframes)):
             keyframe = keyframes[kf_idx]
             if keyframe is None or keyframe.X_canon is None:
-                print(f"  Skipping keyframe {kf_idx}: No data")
+                logger.debug(f"  Skipping keyframe {kf_idx}: No data")
                 continue
             
             # Get semantic data
             semantic_data = semantic_keyframes.get_semantics(kf_idx)
             if semantic_data is None or not semantic_data.get('masks_rle'):
-                print(f"  Skipping keyframe {kf_idx}: No semantic data")
+                logger.debug(f"  Skipping keyframe {kf_idx}: No semantic data")
                 continue
             
             # Project this keyframe
@@ -299,7 +302,7 @@ class DenseSemanticReconstructorV2:
                 total_labeled_points += len(points)
         
         if len(all_points) == 0:
-            print("No semantic points found!")
+            logger.warning("No semantic points found!")
             return {}
         
         # Concatenate all points
@@ -307,8 +310,8 @@ class DenseSemanticReconstructorV2:
         all_colors = np.concatenate(all_colors, axis=0)
         all_labels = np.concatenate(all_labels, axis=0)
         
-        print(f"\nProcessed {processed_keyframes} keyframes")
-        print(f"Total dense semantic points: {len(all_points)}")
+        logger.info(f"Processed {processed_keyframes} keyframes")
+        logger.info(f"Total dense semantic points: {len(all_points)}")
         
         # Apply semantic colors if requested
         if use_semantic_colors:
@@ -325,7 +328,7 @@ class DenseSemanticReconstructorV2:
         unique_labels, counts = np.unique(all_labels, return_counts=True)
         label_stats = {}
         
-        print("\nFinal label distribution:")
+        logger.info("Final label distribution:")
         for label_id, count in zip(unique_labels, counts):
             label_name = global_label_mapping.get(label_id, f"unknown_{label_id}")
             percentage = (count / len(all_labels)) * 100
@@ -333,7 +336,7 @@ class DenseSemanticReconstructorV2:
                 'count': int(count),
                 'percentage': float(percentage)
             }
-            print(f"  {label_name}: {count} points ({percentage:.1f}%)")
+            logger.info(f"  {label_name}: {count} points ({percentage:.1f}%)")
         
         return {
             'points': all_points,

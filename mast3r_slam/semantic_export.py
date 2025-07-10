@@ -105,14 +105,8 @@ def save_semantic_reconstruction(savedir: str,
         # Transform to world coordinates
         pW = keyframe.T_WC.act(X_canon).cpu().numpy().reshape(-1, 3)
         
-        # Get RGB colors - sample from image based on projection
-        # For now, just use random colors if dimensions don't match
-        n_points = len(pW)
-        if hasattr(keyframe, 'point_colors') and keyframe.point_colors is not None:
-            color = keyframe.point_colors
-        else:
-            # Generate colors based on point positions for visualization
-            color = ((pW - pW.min(axis=0)) / (pW.max(axis=0) - pW.min(axis=0) + 1e-6) * 255).astype(np.uint8)
+        # Get RGB colors from the keyframe image (same as save_reconstruction)
+        color = (keyframe.uimg.cpu().numpy() * 255).astype(np.uint8).reshape(-1, 3)
         
         # Get confidence mask
         conf = keyframe.get_average_conf()

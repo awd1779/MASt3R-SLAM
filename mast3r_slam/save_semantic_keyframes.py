@@ -169,7 +169,7 @@ def create_semantic_overlay(img: np.ndarray,
     return overlay
 
 
-def create_semantic_stats(semantic_keyframes, semantic_backend) -> Dict:
+def create_semantic_stats(semantic_keyframes, semantic_backend, total_keyframes=None) -> Dict:
     """Generate statistics about semantic segmentation."""
     stats = {
         'total_keyframes': 0,
@@ -184,7 +184,12 @@ def create_semantic_stats(semantic_keyframes, semantic_backend) -> Dict:
     total_pixels = 0
     labeled_pixels = 0
     
-    for i in range(len(semantic_keyframes)):
+    # Handle SharedSemanticKeyframes which doesn't have len()
+    max_keyframes = getattr(semantic_keyframes, 'max_keyframes', 1000)
+    if total_keyframes is not None:
+        max_keyframes = min(max_keyframes, total_keyframes)
+    
+    for i in range(max_keyframes):
         semantic_data = semantic_keyframes.get_semantics(i)
         if semantic_data is None:
             continue
@@ -203,22 +208,21 @@ def create_semantic_stats(semantic_keyframes, semantic_backend) -> Dict:
             if 'counts' in rle:
                 # Count pixels in RLE
                 counts = rle['counts']
-                if isinstance(counts, bytes):
-                    counts = counts.decode('utf-8')
                 
                 # RLE alternates between background and foreground
-                is_foreground = False
-                idx = 0
-                for c in counts:
-                    if c.isdigit():
-                        continue
-                    else:
-                        # End of number
+                # counts is a list of integers
+                if isinstance(counts, list):
+                    is_foreground = False
+                    for count in counts:
                         if is_foreground:
-                            # This was a foreground run
-                            labeled_pixels += int(counts[idx:counts.index(c, idx)])
+                            labeled_pixels += count
                         is_foreground = not is_foreground
-                        idx = counts.index(c, idx) + 1
+                elif isinstance(counts, (str, bytes)):
+                    # Handle string-based RLE if needed
+                    if isinstance(counts, bytes):
+                        counts = counts.decode('utf-8')
+                    # Parse string RLE format (not commonly used)
+                    pass
                 
                 # Get total pixels
                 if 'size' in rle:
@@ -229,7 +233,19 @@ def create_semantic_stats(semantic_keyframes, semantic_backend) -> Dict:
                         h, w = size
                     total_pixels += h * w
     
-    stats['total_keyframes'] = len(semantic_keyframes)
+    # Use provided total_keyframes or count from semantic data
+    if total_keyframes is not None:
+        stats['total_keyframes'] = total_keyframes
+    else:
+        # Count actual keyframes by checking which ones have been set
+        actual_keyframes = 0
+        for i in range(max_keyframes):
+            if semantic_keyframes.has_semantics[i] or semantic_keyframes.semantic_masks_rle[i] is not None:
+                actual_keyframes += 1
+            elif i > 0 and semantic_keyframes.semantic_masks_rle[i-1] is None:
+                # Stop counting once we hit consecutive None values
+                break
+        stats['total_keyframes'] = max(actual_keyframes, stats['keyframes_with_semantics'])
     if stats['keyframes_with_semantics'] > 0:
         stats['avg_instances_per_frame'] = stats['total_instances'] / stats['keyframes_with_semantics']
     

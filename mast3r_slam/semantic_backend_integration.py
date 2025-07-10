@@ -5,6 +5,9 @@ from mast3r_slam.semantic_factor_graph import create_semantic_factor_graph
 from mast3r_slam.semantic_integration import SemanticSLAMBackend
 from mast3r_slam.track_manager import GlobalTrackManager
 from mast3r_slam.config import config, set_global_config
+import logging
+
+logger = logging.getLogger('mast3r_slam.semantic_backend')
 
 
 def run_semantic_backend(cfg, model, states, keyframes, semantic_keyframes, semantic_result_queue, K):
@@ -149,7 +152,7 @@ def run_semantic_backend(cfg, model, states, keyframes, semantic_keyframes, sema
         if hasattr(factor_graph, 'get_semantic_statistics'):
             sem_stats = factor_graph.get_semantic_statistics()
             if sem_stats.get('total_checks', 0) > 0:
-                print(f"  Semantic: {sem_stats['accepted']}/{sem_stats['total_checks']} accepted, "
+                logger.info(f"  Semantic: {sem_stats['accepted']}/{sem_stats['total_checks']} accepted, "
                       f"avg score: {sem_stats.get('average_semantic_score', 0):.3f}")
 
         # Run optimization
