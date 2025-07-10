@@ -1,0 +1,49 @@
+# config/semantic_slam.yaml
+inherit: "config/base.yaml"
+verbose: true
+
+semantic_segmentation:
+  enabled: true
+  
+  # Use mock processor (set to false to use real Grounded-SAM2)
+  use_mock: false
+  
+  # Perception front-end choice for experiments
+  # Options: "grounded_sam" (proposed), "sam_clip" (baseline)
+  frontend_type: "grounded_sam"
+
+  # Grounded-SAM2 settings
+  grounded_sam2:
+    model_type: "hiera_b+"
+    grounding_model: "grounding_dino_swin-b"
+    device: "cuda:0"
+    confidence_threshold: 0.35
+  
+  # Initial Vocabulary (can be updated dynamically via API)
+  initial_vocabulary: ["person", "chair", "table", "car", "bottle"]
+     
+  # Backend settings
+  backend:
+    enable_semantic_verification: true
+    enable_semantic_factor: false
+    semantic_weight: 0.05
+
+# Semantic loop closure verification
+semantic_loop_closure:
+  enabled: true
+  
+  # Minimum fraction of matched points that must have consistent semantic labels
+  min_semantic_overlap: 0.3
+  
+  # Minimum overlap for instance-level matching
+  min_instance_overlap: 0.2
+  
+  # Minimum cosine similarity between label histograms
+  histogram_similarity: 0.5
+  
+  # Weight factor for semantic scores in optimization (0 = no weighting)
+  # Positive values boost confidence of semantically consistent matches
+  weight_factor: 0.0  # Start with 0, can experiment with 0.1-0.3
+  
+  # Verbose output for debugging
+  verbose_rejection: true

@@ -56,3 +56,7 @@ retrieval:
 reloc:
   min_match_frac: 0.3
   strict: True
+
+global_opt:
+  use_loop_closures: True
+  loop_confidence_threshold: 0.3

@@ -1,0 +1,17 @@
+Semantic Reconstruction Statistics
+========================================
+Total points: 15000
+Labeled points: 2738
+Unique instances: 8
+Average semantic confidence: 0.839
+
+Label distribution:
+  0 (background): 12262 points (81.7%)
+  1 (person): 434 points (2.9%)
+  2 (chair): 259 points (1.7%)
+  3 (table): 576 points (3.8%)
+  4 (person): 366 points (2.4%)
+  5 (chair): 294 points (2.0%)
+  6 (table): 590 points (3.9%)
+  8 (chair): 3 points (0.0%)
+  9 (table): 216 points (1.4%)
