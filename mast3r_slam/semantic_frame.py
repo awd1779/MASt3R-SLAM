@@ -100,6 +100,13 @@ class SharedSemanticKeyframes:
                 'confidences': self.semantic_confidences[kf_idx],
                 'timestamp': self.semantic_timestamps[kf_idx]
             }
+    
+    def has_semantic_data(self, kf_idx: int) -> bool:
+        """Check if a keyframe has semantic data."""
+        with self.lock:
+            if kf_idx >= self.max_keyframes:
+                return False
+            return bool(self.has_semantics[kf_idx].item())
 
 
 # RLE encoding/decoding utilities

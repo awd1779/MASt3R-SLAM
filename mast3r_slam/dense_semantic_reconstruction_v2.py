@@ -537,7 +537,7 @@ class DenseSemanticReconstructorV2:
         # Write PLY file
         ply_data = PlyData([vertex_element], text=False)
         ply_data.write(filename)
-        print(f"Saved dense semantic point cloud to {filename}")
+        logger.info(f"Saved dense semantic point cloud to {filename}")
 
 
 def create_dense_semantic_reconstruction_v2(keyframes, 
@@ -590,6 +590,6 @@ def create_dense_semantic_reconstruction_v2(keyframes,
         for label_name, stats in sorted(result['label_stats'].items()):
             f.write(f"  {label_name}: {stats['count']:,} points ({stats['percentage']:.1f}%)\n")
     
-    print(f"\nSaved statistics to {stats_path}")
+    logger.info(f"Saved statistics to {stats_path}")
     
     return result

@@ -9,6 +9,9 @@ from mast3r_slam.geometry import constrain_points_to_ray
 from mast3r_slam.config import config
 from mast3r_slam.semantic_integration import SemanticSLAMBackend
 import matplotlib.cm as cm
+import logging
+
+logger = logging.getLogger('mast3r_slam.semantic_export')
 
 
 def save_semantic_ply(filename: str, 
@@ -215,12 +218,12 @@ def save_semantic_reconstruction(savedir: str,
             name = label_names.get(int(label), "background" if label == 0 else f"unknown_{label}")
             f.write(f"  {label} ({name}): {count} points ({percentage:.1f}%)\n")
     
-    print(f"Saved semantic reconstruction to {savedir / filename}")
-    print(f"Total points: {len(pointclouds)}, Labeled: {(semantic_labels > 0).sum()}")
-    print(f"Total unique objects: {total_objects}")
-    print("Object counts by type:")
+    logger.info(f"Saved semantic reconstruction to {savedir / filename}")
+    logger.info(f"Total points: {len(pointclouds)}, Labeled: {(semantic_labels > 0).sum()}")
+    logger.info(f"Total unique objects: {total_objects}")
+    logger.info("Object counts by type:")
     for obj_type, count in sorted(object_type_counts.items()):
-        print(f"  {obj_type}: {count} instance{'s' if count > 1 else ''}")
+        logger.info(f"  {obj_type}: {count} instance{'s' if count > 1 else ''}")
     
 
 def generate_semantic_colors(labels: np.ndarray, 

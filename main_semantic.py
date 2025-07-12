@@ -26,6 +26,8 @@ from mast3r_slam.multiprocess_utils import new_queue, try_get_msg
 from mast3r_slam.tracker import FrameTracker
 from mast3r_slam.visualization import WindowMsg, run_visualization
 import torch.multiprocessing as mp
+from threading import Thread
+import queue
 
 # Import semantic components
 from mast3r_slam.semantic_frame import SharedSemanticKeyframes, create_semantic_frame
@@ -293,6 +295,46 @@ if __name__ == "__main__":
                 sam2_checkpoint_dir=sam2_dir,
                 grounding_dino_checkpoint_dir=grounding_dir
             )
+    
+    # Start continuous semantic result processor thread
+    semantic_result_thread = None
+    terminate_semantic_thread = False
+    
+    def continuous_semantic_processor():
+        """Process semantic results continuously without blocking main loop"""
+        processed_count = 0
+        while not terminate_semantic_thread:
+            try:
+                semantic_data = semantic_result_queue.get(timeout=0.1)
+                kf_idx = semantic_data.get('keyframe_idx')
+                
+                if kf_idx is not None:
+                    # Direct mapping - no search needed!
+                    logger.debug(f"Processing semantic result for keyframe {kf_idx} (frame {semantic_data.get('frame_id')})")
+                    semantic_keyframes.update_semantics(kf_idx, semantic_data)
+                    processed_count += 1
+                    
+                    if processed_count % 10 == 0:
+                        logger.info(f"Processed {processed_count} semantic results")
+                else:
+                    # Fallback for old-style results without keyframe_idx
+                    frame_id = semantic_data['frame_id']
+                    logger.warning(f"Semantic result for frame {frame_id} missing keyframe_idx")
+                    
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logger.error(f"Error processing semantic result: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+        
+        logger.info(f"Semantic processor thread finished. Processed {processed_count} results total.")
+    
+    if semantic_result_queue is not None:
+        semantic_result_thread = Thread(target=continuous_semantic_processor, daemon=True)
+        semantic_result_thread.start()
+        logger.info("Started continuous semantic result processor thread")
 
     if not args.no_viz:
         viz = mp.Process(
@@ -380,15 +422,7 @@ if __name__ == "__main__":
         img_resized = resize_img(img, dataset.img_size)
         frame = create_frame(i, img, T_WC, img_size=dataset.img_size, device=device)
         
-        # Send frame to semantic processor if enabled
-        if semantic_frame_queue is not None:
-            # Convert resized image to numpy array for semantic processing
-            # Use the unnormalized image which is already in [0,1] range
-            img_numpy = (img_resized["unnormalized_img"] * 255).clip(0, 255).astype('uint8')
-            semantic_frame_queue.put({
-                'img': img_numpy,
-                'frame_id': i
-            })
+        # Note: We'll send to semantic processor only when keyframe is added (see below)
 
         if mode == Mode.INIT:
             # Initialize via mono inference, and encoded features neeed for database
@@ -397,6 +431,17 @@ if __name__ == "__main__":
             keyframes.append(frame)
             kf_idx = len(keyframes) - 1
             states.queue_global_optimization(kf_idx)
+            
+            # Send first keyframe to semantic processor
+            if semantic_frame_queue is not None:
+                img_numpy = (img_resized["unnormalized_img"] * 255).clip(0, 255).astype('uint8')
+                semantic_msg = {
+                    'img': img_numpy,
+                    'frame_id': i,
+                    'keyframe_idx': kf_idx
+                }
+                semantic_frame_queue.put(semantic_msg)
+                logger.info(f"Sent initial keyframe {kf_idx} (frame {i}) to semantic processor")
             
             # Save first keyframe immediately
             if keyframe_saver is not None:
@@ -430,11 +475,23 @@ if __name__ == "__main__":
 
         if add_new_kf:
             keyframes.append(frame)
-            states.queue_global_optimization(len(keyframes) - 1)
+            kf_idx = len(keyframes) - 1
+            states.queue_global_optimization(kf_idx)
+            
+            # Send keyframe to semantic processor
+            if semantic_frame_queue is not None:
+                # Convert resized image to numpy array for semantic processing
+                img_numpy = (img_resized["unnormalized_img"] * 255).clip(0, 255).astype('uint8')
+                semantic_msg = {
+                    'img': img_numpy,
+                    'frame_id': i,
+                    'keyframe_idx': kf_idx  # Direct mapping to keyframe index
+                }
+                semantic_frame_queue.put(semantic_msg)
+                logger.info(f"Sent keyframe {kf_idx} (frame {i}) to semantic processor")
             
             # Save keyframe data for dense reconstruction
             if keyframe_saver is not None:
-                kf_idx = len(keyframes) - 1
                 keyframe_saver.save_keyframe(kf_idx, frame)
             # In single threaded mode, wait for the backend to finish
             while config["single_thread"]:
@@ -442,16 +499,28 @@ if __name__ == "__main__":
                     if len(states.global_optimizer_tasks) == 0:
                         break
                 time.sleep(0.01)
-        # log time
+        # log time and queue status
         if i % 30 == 0:
             FPS = i / (time.time() - fps_timer)
             logger.info(f"FPS: {FPS}")
+            
+            # Monitor semantic queues
+            if semantic_frame_queue is not None:
+                input_size = semantic_frame_queue.qsize()
+                output_size = semantic_result_queue.qsize()
+                logger.info(f"Semantic queues: input={input_size}, output={output_size}")
         i += 1
 
-    # Terminate semantic processor
+    # Terminate semantic processor and result thread
     if semantic_frame_queue is not None:
         semantic_frame_queue.put(None)  # Termination signal
         semantic_processor.join()
+        
+        # Terminate result processor thread
+        terminate_semantic_thread = True
+        if semantic_result_thread is not None:
+            semantic_result_thread.join(timeout=5.0)
+            logger.info("Semantic result processor thread terminated")
 
     if dataset.save_results:
         save_dir, seq_name = eval.prepare_savedir(args, dataset)
@@ -477,69 +546,24 @@ if __name__ == "__main__":
                 keyframes, semantic_keyframes, track_manager, K, device
             )
             
-            # Process all semantic results from queue
-            processed_count = 0
-            queue_size = semantic_result_queue.qsize()
-            logger.info(f"Semantic result queue has {queue_size} items")
+            # Wait for any remaining semantic results to be processed
+            # Give the thread some time to finish processing
+            remaining_start = time.time()
+            while semantic_result_queue.qsize() > 0 and (time.time() - remaining_start) < 10.0:
+                logger.info(f"Waiting for {semantic_result_queue.qsize()} remaining semantic results...")
+                time.sleep(0.5)
             
-            # Also check if backend already processed them
+            # Process semantic keyframes with backend
             n_keyframes = len(keyframes)
             logger.info(f"Total keyframes: {n_keyframes}")
+            semantic_count = 0
+            for kf_idx in range(n_keyframes):
+                if semantic_keyframes.has_semantic_data(kf_idx):
+                    semantic_backend.process_semantic_keyframe(kf_idx)
+                    semantic_count += 1
+                    logger.info(f"Processed semantic data for keyframe {kf_idx}")
             
-            while True:
-                try:
-                    semantic_data = semantic_result_queue.get_nowait()
-                    frame_id = semantic_data['frame_id']
-                    n_instances = len(semantic_data.get('instance_ids', []))
-                    logger.debug(f"Processing semantic frame {frame_id} with {n_instances} instances")
-                    
-                    # Find corresponding keyframe
-                    found = False
-                    for kf_idx in range(len(keyframes)):
-                        try:
-                            kf = keyframes[kf_idx]
-                            # frame_id in Frame is accessed via dataset_idx attribute
-                            if kf and hasattr(kf, 'frame_id') and int(kf.frame_id) == int(frame_id):
-                                logger.debug(f"  Updating semantics for kf_idx={kf_idx}")
-                                semantic_keyframes.update_semantics(kf_idx, semantic_data)
-                                logger.debug(f"  Processing semantic keyframe")
-                                semantic_backend.process_semantic_keyframe(kf_idx)
-                                
-                                # Save semantic data with keyframe
-                                if keyframe_saver is not None:
-                                    keyframe_saver.save_keyframe(kf_idx, kf, semantic_data)
-                                
-                                processed_count += 1
-                                logger.info(f"✓ Processed semantic data for frame {frame_id} -> keyframe {kf_idx}")
-                                found = True
-                                break
-                        except Exception as e:
-                            logger.error(f"  Error at kf_idx={kf_idx}: {e}")
-                            if logger.isEnabledFor(logging.DEBUG):
-                                import traceback
-                                traceback.print_exc()
-                            raise
-                    
-                    if not found:
-                        logger.debug(f"⚠ No keyframe found for semantic frame {frame_id}")
-                except Exception as e:
-                    if "empty" not in str(e).lower():
-                        logger.error(f"Error processing semantic queue: {e}")
-                    break
-            
-            logger.info(f"Processed {processed_count} semantic frames")
-            
-            # Export semantic point cloud (sparse SLAM points)
-            save_semantic_reconstruction(
-                save_dir,
-                f"{seq_name}_semantic_sparse.ply",
-                keyframes,
-                semantic_backend,
-                last_msg.C_conf_threshold,
-                use_semantic_colors=True
-            )
-            
-            logger.info(f"Saved sparse semantic reconstruction to {save_dir}/{seq_name}_semantic_sparse.ply")
+            logger.info(f"Processed {semantic_count}/{n_keyframes} keyframes with semantic data")
             
             # Export dense semantic point cloud
             from mast3r_slam.dense_semantic_reconstruction_v2 import create_dense_semantic_reconstruction_v2

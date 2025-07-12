@@ -48,22 +48,23 @@ class SemanticProcessor:
                 device=self.device
             )
             
-            print(f"Semantic models initialized on {self.device}")
+            logger.info(f"Semantic models initialized on {self.device}")
             
         except ImportError:
-            print("Warning: Grounded-SAM2 not installed. Using mock semantic processor.")
+            logger.warning("Grounded-SAM2 not installed. Using mock semantic processor.")
             self.predictor = None
     
-    def process_frame(self, image: np.ndarray, frame_id: int) -> Dict:
+    def process_frame(self, image: np.ndarray, frame_id: int, keyframe_idx: Optional[int] = None) -> Dict:
         """Process a single frame to generate semantic masks."""
         if self.predictor is None:
             # Mock processing for testing without Grounded-SAM2
-            return self._mock_process_frame(image, frame_id)
+            return self._mock_process_frame(image, frame_id, keyframe_idx)
         
         # Real Grounded-SAM2 processing
         h, w = image.shape[:2]
         results = {
             'frame_id': frame_id,
+            'keyframe_idx': keyframe_idx,  # Direct mapping to keyframe
             'masks_rle': {},
             'instance_ids': [],
             'track_ids': {},
@@ -113,17 +114,18 @@ class SemanticProcessor:
                 instance_id += 1
                 
         except Exception as e:
-            print(f"Error in semantic processing: {e}")
+            logger.error(f"Error in semantic processing: {e}")
         
         return results
     
-    def _mock_process_frame(self, image: np.ndarray, frame_id: int) -> Dict:
+    def _mock_process_frame(self, image: np.ndarray, frame_id: int, keyframe_idx: Optional[int] = None) -> Dict:
         """Mock semantic processing for testing."""
         h, w = image.shape[:2]
         
         # Create mock masks for testing
         results = {
             'frame_id': frame_id,
+            'keyframe_idx': keyframe_idx,
             'masks_rle': {},
             'instance_ids': [],
             'track_ids': {},
@@ -169,7 +171,7 @@ class SemanticProcessor:
     
     def run(self):
         """Main processing loop."""
-        print("Starting semantic processor...")
+        logger.info("Starting semantic processor...")
         self.initialize_models()
         
         while True:
@@ -183,9 +185,10 @@ class SemanticProcessor:
                 # Extract data
                 image = frame_data['img']  # NumPy array [H, W, 3]
                 frame_id = frame_data['frame_id']
+                keyframe_idx = frame_data.get('keyframe_idx')  # May be None for old-style
                 
                 # Process frame
-                semantic_data = self.process_frame(image, frame_id)
+                semantic_data = self.process_frame(image, frame_id, keyframe_idx)
                 
                 # Put results in output queue
                 self.result_queue.put(semantic_data)
@@ -193,10 +196,10 @@ class SemanticProcessor:
             except Empty:
                 continue
             except Exception as e:
-                print(f"Error in semantic processor: {e}")
+                logger.error(f"Error in semantic processor: {e}")
                 continue
         
-        print("Semantic processor terminated.")
+        logger.info("Semantic processor terminated.")
 
 
 def start_semantic_processor(frame_queue: mp.Queue, 

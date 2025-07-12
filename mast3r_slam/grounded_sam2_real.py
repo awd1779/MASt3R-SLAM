@@ -375,8 +375,7 @@ class RealGroundedSAM2Processor:
         caption = ". ".join(self.vocabulary) + "."
         
         # Run grounding
-        print(f"    Running Grounding DINO with caption: {caption}")
-        print(f"    Confidence threshold: {self.confidence_threshold}")
+        logger.debug(f"Running Grounding DINO with caption: {caption}, threshold: {self.confidence_threshold}")
         
         with torch.no_grad():
             boxes, logits, phrases = predict(
@@ -388,15 +387,13 @@ class RealGroundedSAM2Processor:
                 device=self.device
             )
         
-        print(f"    Detected {len(boxes)} objects")
-        for i, (phrase, score) in enumerate(zip(phrases, logits)):
-            print(f"      {i}: {phrase} (conf={score:.3f})")
+        logger.info(f"Detected {len(boxes)} objects: {', '.join([f'{p} ({s:.2f})' for p, s in zip(phrases, logits)])}")
         
         # Convert boxes from normalized to pixel coordinates
         h, w = image.shape[:2]
         
         # Check box format - Grounding DINO returns cxcywh format, need to convert to xyxy
-        print(f"    Raw box format (first box): {boxes[0] if len(boxes) > 0 else 'None'}")
+        # logger.debug(f"Raw box format (first box): {boxes[0] if len(boxes) > 0 else 'None'}")
         
         # Convert from cxcywh to xyxy format
         boxes_xyxy = torch.zeros_like(boxes)
@@ -414,7 +411,7 @@ class RealGroundedSAM2Processor:
                                  labels: List[str], frame_idx: int) -> Dict:
         """Use SAM2 IMAGE MODE to segment objects given bounding boxes."""
         if self.sam2_predictor is None:
-            print("    WARNING: SAM2 predictor is None, using mock segmentation!")
+            logger.warning("SAM2 predictor is None, using mock segmentation!")
             return self._mock_segment_frame(image, boxes, labels, frame_idx)
             
         # Ensure image is uint8
@@ -432,7 +429,7 @@ class RealGroundedSAM2Processor:
             image_rgb = image
             
         # Set the image in the predictor (required for image mode)
-        print(f"    Setting image in SAM2 predictor (shape: {image_rgb.shape})")
+        logger.debug(f"Setting image in SAM2 predictor")
         self.sam2_predictor.set_image(image_rgb)
         self.current_image_set = True
         
@@ -440,17 +437,17 @@ class RealGroundedSAM2Processor:
         masks = []
         track_ids = []
         
-        print(f"    Processing {len(boxes)} detected boxes for segmentation...")
+        logger.debug(f"Processing {len(boxes)} detected boxes for segmentation")
         
         # Convert all boxes to numpy array
         if len(boxes) > 0:
             # Boxes should already be in xyxy pixel coordinates
             input_boxes = boxes.cpu().numpy()
-            print(f"    Input boxes shape: {input_boxes.shape}")
-            print(f"    First box: {input_boxes[0] if len(input_boxes) > 0 else 'None'}")
+            # logger.debug(f"Input boxes shape: {input_boxes.shape}")
+            # logger.debug(f"First box: {input_boxes[0] if len(input_boxes) > 0 else 'None'}")
             
             # Predict masks for all boxes at once
-            print(f"    Running SAM2 predict with {len(input_boxes)} boxes...")
+            logger.debug(f"Running SAM2 predict with {len(input_boxes)} boxes")
             try:
                 # SAM2 image mode predict
                 predicted_masks, scores, logits = self.sam2_predictor.predict(
@@ -460,23 +457,23 @@ class RealGroundedSAM2Processor:
                     multimask_output=False  # Single mask per box
                 )
                 
-                print(f"    SAM2 output: masks shape={predicted_masks.shape}, scores shape={scores.shape}")
+                logger.debug(f"SAM2 output: masks shape={predicted_masks.shape}, scores shape={scores.shape}")
                 
                 # Process each mask
                 for box_idx, (mask, score, label) in enumerate(zip(predicted_masks, scores, labels)):
                     # Score might be a scalar or array
                     score_val = float(score[0] if hasattr(score, '__len__') else score)
-                    print(f"      Processing mask {box_idx}: {label} (score={score_val:.3f})")
+                    # Processing mask
                     
                     # mask is (C, H, W) with C=1, need to squeeze
-                    print(f"        Mask shape before squeeze: {mask.shape}")
+                    # logger.debug(f"Mask shape before squeeze: {mask.shape}")
                     if mask.ndim == 3 and mask.shape[0] == 1:
                         mask = mask[0]  # Remove channel dimension
-                    print(f"        Mask shape after squeeze: {mask.shape}")
+                    # logger.debug(f"Mask shape after squeeze: {mask.shape}")
                     
                     mask_pixels = np.sum(mask)
                     mask_total = mask.shape[0] * mask.shape[1]
-                    print(f"        Mask pixels: {mask_pixels} ({mask_pixels/mask_total*100:.1f}% coverage)")
+                    # Mask pixels debug
                     
                     # Check mask bounds
                     try:
@@ -490,9 +487,9 @@ class RealGroundedSAM2Processor:
                         if len(y_indices) > 0:
                             min_y, max_y = y_indices.min(), y_indices.max()
                             min_x, max_x = x_indices.min(), x_indices.max()
-                            print(f"        Mask bounds: x=[{min_x}, {max_x}], y=[{min_y}, {max_y}], size={max_x-min_x+1}x{max_y-min_y+1}")
+                            # logger.debug(f"Mask bounds: x=[{min_x}, {max_x}], y=[{min_y}, {max_y}], size={max_x-min_x+1}x{max_y-min_y+1}")
                     except Exception as e:
-                        print(f"        Error checking mask bounds: {e}")
+                        logger.debug(f"Error checking mask bounds: {e}")
                     
                     masks.append(mask)
                     
@@ -507,7 +504,7 @@ class RealGroundedSAM2Processor:
                     self.next_track_id += 1
                     
             except Exception as e:
-                print(f"    ERROR in SAM2 predict: {e}")
+                logger.error(f"ERROR in SAM2 predict: {e}")
                 import traceback
                 traceback.print_exc()
                 # Fallback to box masks
@@ -528,7 +525,7 @@ class RealGroundedSAM2Processor:
             'track_ids': track_ids
         }
     
-    def process_frame(self, image: np.ndarray, frame_id: int) -> Dict:
+    def process_frame(self, image: np.ndarray, frame_id: int, keyframe_idx: Optional[int] = None) -> Dict:
         """Process a single frame to generate semantic masks."""
         start_time = time.time()
         h, w = image.shape[:2]
@@ -540,6 +537,7 @@ class RealGroundedSAM2Processor:
         if len(boxes) == 0:
             return {
                 'frame_id': frame_id,
+                'keyframe_idx': keyframe_idx,
                 'masks_rle': {},
                 'instance_ids': [],
                 'track_ids': {},
@@ -556,6 +554,7 @@ class RealGroundedSAM2Processor:
         # Convert to RLE format
         results = {
             'frame_id': frame_id,
+            'keyframe_idx': keyframe_idx,  # Direct mapping to keyframe
             'masks_rle': {},
             'instance_ids': [],
             'track_ids': {},
@@ -587,7 +586,7 @@ class RealGroundedSAM2Processor:
         self.frame_times.append(results['processing_time'])
         if len(self.frame_times) % 30 == 0:
             avg_time = np.mean(self.frame_times[-30:])
-            print(f"Semantic processing: {avg_time*1000:.1f}ms/frame ({1/avg_time:.1f} FPS)")
+            logger.info(f"Semantic processing: {avg_time*1000:.1f}ms/frame ({1/avg_time:.1f} FPS)")
             
         return results
     
@@ -634,7 +633,7 @@ class RealGroundedSAM2Processor:
     
     def run(self):
         """Main processing loop."""
-        print(f"Starting Real Grounded-SAM2 semantic processor on {self.device}...")
+        logger.info(f"Starting Real Grounded-SAM2 semantic processor on {self.device}...")
         self.initialize_models()
         
         while True:
@@ -646,9 +645,10 @@ class RealGroundedSAM2Processor:
                 
                 image = frame_data['img']
                 frame_id = frame_data['frame_id']
+                keyframe_idx = frame_data.get('keyframe_idx')  # Direct keyframe mapping
                 
                 # Process frame
-                semantic_data = self.process_frame(image, frame_id)
+                semantic_data = self.process_frame(image, frame_id, keyframe_idx)
                 
                 # Put results in output queue
                 self.result_queue.put(semantic_data)
@@ -657,14 +657,14 @@ class RealGroundedSAM2Processor:
             except Empty:
                 continue
             except Exception as e:
-                print(f"Error in semantic processor: {e}")
+                logger.error(f"Error in semantic processor: {e}")
                 import traceback
                 traceback.print_exc()
                 continue
         
-        print("Semantic processor terminated.")
+        logger.info("Semantic processor terminated.")
         if self.frame_times:
-            print(f"Average processing time: {np.mean(self.frame_times)*1000:.1f}ms")
+            logger.info(f"Average processing time: {np.mean(self.frame_times)*1000:.1f}ms")
 
 
 def start_real_grounded_sam2_processor(frame_queue: mp.Queue, 

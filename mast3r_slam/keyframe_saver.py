@@ -5,6 +5,9 @@ import torch
 from pathlib import Path
 import pickle
 import cv2
+import logging
+
+logger = logging.getLogger('mast3r_slam.keyframe_saver')
 
 
 class KeyframeSaver:
@@ -66,8 +69,8 @@ class KeyframeSaver:
             'has_semantics': semantic_data is not None
         })
         
-        print(f"  Saved keyframe {kf_idx}: depth {depth_map.shape}, "
-              f"pose {T_WC.shape}, semantics: {semantic_data is not None}")
+        logger.debug(f"Saved keyframe {kf_idx}: depth {depth_map.shape}, "
+                    f"pose {T_WC.shape}, semantics: {semantic_data is not None}")
     
     def save_metadata(self):
         """Save metadata about all keyframes."""
@@ -77,7 +80,7 @@ class KeyframeSaver:
                 'keyframes': self.keyframe_data,
                 'num_keyframes': len(self.keyframe_data)
             }, f)
-        print(f"Saved metadata for {len(self.keyframe_data)} keyframes")
+        logger.info(f"Saved metadata for {len(self.keyframe_data)} keyframes")
 
 
 class DenseSemanticBuilder:
