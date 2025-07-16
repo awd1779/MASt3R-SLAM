@@ -245,9 +245,21 @@ if __name__ == "__main__":
         semantic_frame_queue = manager.Queue()
         semantic_result_queue = manager.Queue()
         
-        # Get initial vocabulary from config
+        # Get initial vocabulary - try to load from Replica dataset first
         vocabulary = config["semantic_segmentation"].get("initial_vocabulary", 
                                                          ["chair", "table", "car", "bottle"])
+        
+        # If this is a Replica dataset, try to load vocabulary from info_semantic.json
+        if any(pattern in args.dataset for pattern in ["room_", "apartment_", "replica"]):
+            try:
+                from mast3r_slam.replica_vocabulary_loader import load_replica_vocabulary
+                replica_vocab = load_replica_vocabulary(args.dataset)
+                if replica_vocab:
+                    vocabulary = replica_vocab
+                    logger.info(f"Loaded Replica vocabulary with {len(vocabulary)} classes")
+            except Exception as e:
+                logger.warning(f"Failed to load Replica vocabulary: {e}")
+                logger.info("Using vocabulary from config")
         
         # Get device and model settings
         semantic_device = config["semantic_segmentation"]["grounded_sam2"].get("device", "cuda:1")

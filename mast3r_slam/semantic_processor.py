@@ -6,6 +6,10 @@ import torch.multiprocessing as mp
 from queue import Empty
 from mast3r_slam.semantic_frame import encode_rle
 from mast3r_slam.config import config
+import logging
+
+# Create logger for this module
+logger = logging.getLogger(__name__)
 
 
 class SemanticProcessor:

@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import pyrealsense2 as rs
 import yaml
+import json
 
 from mast3r_slam.mast3r_utils import resize_img
 from mast3r_slam.config import config
@@ -24,7 +25,7 @@ class MonocularDataset(torch.utils.data.Dataset):
         self.timestamps = []
         self.img_size = 512
         self.camera_intrinsics = None
-        self.use_calibration = config["use_calib"]
+        self.use_calibration = config.get("use_calib", False)
         self.save_results = True
 
     def __len__(self):
@@ -278,6 +279,46 @@ class RGBFiles(MonocularDataset):
         self.timestamps = np.arange(0, len(self.rgb_files)).astype(self.dtype) / 30.0
 
 
+class ReplicaDataset(MonocularDataset):
+    def __init__(self, dataset_path):
+        super().__init__()
+        self.dataset_path = pathlib.Path(dataset_path)
+        
+        # Load RGB files
+        rgb_dir = self.dataset_path / "rgb"
+        if not rgb_dir.exists():
+            raise ValueError(f"RGB directory not found: {rgb_dir}")
+        
+        self.rgb_files = natsorted(list(rgb_dir.glob("*.jpg")) + list(rgb_dir.glob("*.png")))
+        if not self.rgb_files:
+            raise ValueError(f"No RGB images found in {rgb_dir}")
+        
+        # Load poses if available
+        poses_file = self.dataset_path / "poses.txt"
+        if poses_file.exists():
+            # Skip comment lines and load poses
+            self.poses = np.loadtxt(poses_file, comments='#')
+            self.timestamps = self.poses[:, 0]
+        else:
+            # Use frame indices as timestamps
+            self.timestamps = np.arange(len(self.rgb_files)).astype(self.dtype) / 30.0
+        
+        # Load intrinsics
+        intrinsics_file = self.dataset_path / "intrinsics.json"
+        if intrinsics_file.exists():
+            with open(intrinsics_file, 'r') as f:
+                intrinsics = json.load(f)
+            
+            W, H = intrinsics["width"], intrinsics["height"]
+            fx, fy = intrinsics["fx"], intrinsics["fy"]
+            cx, cy = intrinsics["cx"], intrinsics["cy"]
+            calib = np.array([fx, fy, cx, cy])
+            self.camera_intrinsics = Intrinsics.from_calib(self.img_size, W, H, calib)
+            self.use_calibration = True
+        else:
+            self.use_calibration = False
+
+
 class Intrinsics:
     def __init__(self, img_size, W, H, K_orig, K, distortion, mapx, mapy):
         self.img_size = img_size
@@ -301,7 +342,8 @@ class Intrinsics:
 
     @staticmethod
     def from_calib(img_size, W, H, calib, always_undistort=False):
-        if not config["use_calib"] and not always_undistort:
+        # Skip config check - always create intrinsics if calib provided
+        if not always_undistort and calib is None:
             return None
         fx, fy, cx, cy = calib[:4]
         distortion = np.zeros(4)
@@ -310,7 +352,7 @@ class Intrinsics:
         K = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]])
         K_opt = K.copy()
         mapx, mapy = None, None
-        center = config["dataset"]["center_principle_point"]
+        center = False  # Default to False if config not available
         K_opt, _ = cv2.getOptimalNewCameraMatrix(
             K, distortion, (W, H), 0, (W, H), centerPrincipalPoint=center
         )
@@ -335,6 +377,10 @@ def load_dataset(dataset_path):
         return RealsenseDataset()
     if "webcam" in split_dataset_type:
         return Webcam()
+    
+    # Check for Replica dataset patterns
+    if any(pattern in dataset_path for pattern in ["room_", "apartment_", "replica"]):
+        return ReplicaDataset(dataset_path)
 
     ext = split_dataset_type[-1].split(".")[-1]
     if ext in ["mp4", "avi", "MOV", "mov"]:

@@ -1,0 +1,63 @@
+# Automatic vocabulary config for any Replica dataset
+# Vocabulary is loaded automatically from info_semantic.json
+
+inherit: "config/semantic_slam.yaml"
+verbose: true
+
+# Dataset settings optimized for Replica
+dataset:
+  subsample: 1  # Use every frame
+  img_size: 512  # Standard size for 512x512 images
+  center_principle_point: false  # Replica provides good intrinsics
+
+# Tracking settings for indoor scenes
+tracking:
+  fast_forward: 1
+  max_keyframes: 100  # Increased for more keyframes
+  min_match_frac: 0.03  # Lower threshold to accept more frames as keyframes
+
+# Disable visualization to avoid dimension issues
+visualization:
+  enabled: false
+
+# Semantic segmentation settings
+semantic_segmentation:
+  enabled: true
+  
+  # Use real Grounded-SAM2 processor
+  use_mock: false
+  
+  frontend_type: "grounded_sam"
+  
+  # Vocabulary will be loaded automatically from info_semantic.json
+  # This is a fallback vocabulary if auto-loading fails
+  initial_vocabulary: [
+    "wall", "floor", "ceiling", "table", "chair", 
+    "sofa", "bed", "door", "window", "cabinet"
+  ]
+  
+  # Grounded-SAM2 settings
+  grounded_sam2:
+    model_type: "hiera_b+"
+    grounding_model: "grounding_dino_swin-b"
+    device: "cuda:0"
+    confidence_threshold: 0.35
+
+# Retrieval settings for indoor scenes
+retrieval:
+  k: 5
+  min_thresh: 0.8
+
+# Global optimization
+global_opt:
+  use_loop_closures: true
+  loop_confidence_threshold: 0.3
+
+# Semantic loop closure for indoor environments
+semantic_loop_closure:
+  enabled: true
+  min_semantic_overlap: 0.3
+  min_instance_overlap: 0.2
+  histogram_similarity: 0.5
+  weight_factor: 0.1
+  verbose_rejection: true
