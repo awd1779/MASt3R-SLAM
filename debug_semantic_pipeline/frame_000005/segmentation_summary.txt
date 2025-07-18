@@ -1,0 +1,19 @@
+Frame 5 - Segmentation Results
+Total masks: 16
+
+1. a sofa: 9962 pixels (5.07% of image)
+2. a picture: 20223 pixels (10.29% of image)
+3. a table: 2903 pixels (1.48% of image)
+4. a plant stand: 2899 pixels (1.47% of image)
+5. a ceiling: 25571 pixels (13.01% of image)
+6. a vase: 1137 pixels (0.58% of image)
+7. a wall: 100335 pixels (51.03% of image)
+8. a window: 29464 pixels (14.99% of image)
+9. a lamp: 6635 pixels (3.37% of image)
+10. a indoor plant: 1140 pixels (0.58% of image)
+11. a pillar: 3181 pixels (1.62% of image)
+12. a switch: 644 pixels (0.33% of image)
+13. a vent: 1072 pixels (0.55% of image)
+14. a blinds: 18599 pixels (9.46% of image)
+15. a lamp: 3788 pixels (1.93% of image)
+16. a wall plug: 1200 pixels (0.61% of image)

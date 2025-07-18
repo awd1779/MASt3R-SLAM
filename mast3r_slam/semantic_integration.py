@@ -2,10 +2,14 @@
 
 import torch
 import time
+import logging
 from typing import Dict, Optional, Tuple
-from mast3r_slam.semantic_fusion import SemanticPointmapFusion, compute_semantic_overlap
+from mast3r_slam.semantic_fusion import SemanticPointmapFusion
 from mast3r_slam.track_manager import GlobalTrackManager
-from mast3r_slam.config import config
+from mast3r_slam.config import config, set_global_config
+from mast3r_slam.global_opt import FactorGraph
+
+logger = logging.getLogger('mast3r_slam.semantic_backend')
 
 
 class SemanticSLAMBackend:
@@ -97,33 +101,6 @@ class SemanticSLAMBackend:
             
         return False
         
-    def verify_loop_closure_semantics(self, 
-                                     kf_idx1: int, 
-                                     kf_idx2: int) -> Tuple[bool, float]:
-        """
-        Verify loop closure using semantic consistency.
-        
-        Returns:
-            (is_valid, overlap_score)
-        """
-        if not config["semantic_segmentation"]["backend"]["enable_semantic_verification"]:
-            return True, 1.0
-            
-        # Get semantic labels for both keyframes
-        labels1 = self.keyframe_semantics.get(kf_idx1)
-        labels2 = self.keyframe_semantics.get(kf_idx2)
-        
-        if labels1 is None or labels2 is None:
-            # No semantic data available, accept loop closure
-            return True, 0.0
-            
-        # Compute semantic overlap
-        overlap = compute_semantic_overlap(labels1[0], labels2[0])
-        
-        # Threshold for accepting loop closure
-        min_overlap = config["semantic_segmentation"]["backend"].get("min_semantic_overlap", 0.3)
-        
-        return overlap >= min_overlap, overlap
         
     def update_tracks_on_loop_closure(self, kf_idx1: int, kf_idx2: int):
         """Update track manager when loop closure is detected."""
@@ -246,3 +223,202 @@ def integrate_semantic_backend(backend_func):
                           semantic_result_queue=semantic_result_queue)
                           
     return wrapper
+
+
+def run_semantic_backend(cfg, model, states, keyframes, semantic_keyframes, semantic_result_queue, K):
+    """
+    Enhanced backend with semantic loop closure verification.
+    
+    This replaces the standard run_backend function when semantic SLAM is enabled.
+    """
+    set_global_config(cfg)
+    
+    device = keyframes.device
+    
+    # Initialize track manager
+    track_manager = GlobalTrackManager(
+        iou_threshold=0.5,
+        feature_threshold=0.7
+    )
+    
+    # Initialize semantic backend
+    semantic_backend = SemanticSLAMBackend(
+        keyframes, 
+        semantic_keyframes,
+        track_manager,
+        K,
+        device
+    )
+    
+    # Create standard factor graph
+    factor_graph = FactorGraph(model, keyframes, K, device)
+    
+    # Load retrieval database
+    from mast3r_slam.mast3r_utils import load_retriever
+    retrieval_database = load_retriever(model)
+    
+    # Import necessary functions
+    from mast3r_slam.frame import Mode
+    import time
+    
+    mode = states.get_mode()
+    while mode is not Mode.TERMINATED:
+        mode = states.get_mode()
+        
+        # Process semantic results continuously
+        try:
+            semantic_data = semantic_result_queue.get_nowait()
+            frame_id = semantic_data['frame_id']
+            # Debug: print available keyframe IDs
+            if config.get("verbose", False) and frame_id % 5 == 0:
+                kf_ids = [keyframes[i].frame_id if i < len(keyframes) else None for i in range(min(5, len(keyframes)))]
+                print(f"Looking for frame {frame_id}, available keyframes: {kf_ids}")
+            
+            # Find corresponding keyframe index
+            found = False
+            for kf_idx in range(len(keyframes)):
+                kf = keyframes[kf_idx]
+                if kf and hasattr(kf, 'frame_id') and kf.frame_id == frame_id:
+                    semantic_keyframes.update_semantics(kf_idx, semantic_data)
+                    semantic_backend.process_semantic_keyframe(kf_idx)
+                    print(f"✓ Updated semantics for keyframe {kf_idx} (frame {frame_id})")
+                    found = True
+                    break
+            
+            if not found and config.get("verbose", False):
+                print(f"⚠ No keyframe found for semantic frame {frame_id}")
+        except Exception as e:
+            if str(e) != "":  # Ignore empty queue exceptions
+                print(f"Semantic processing error: {e}")
+        
+        if mode == Mode.INIT or states.is_paused():
+            time.sleep(0.01)
+            continue
+            
+        if mode == Mode.RELOC:
+            frame = states.get_frame()
+            success = relocalization_with_semantics(
+                frame, keyframes, factor_graph, retrieval_database, semantic_backend
+            )
+            if success:
+                states.set_mode(Mode.TRACKING)
+            states.dequeue_reloc()
+            continue
+            
+        idx = -1
+        with states.lock:
+            if len(states.global_optimizer_tasks) > 0:
+                idx = states.global_optimizer_tasks[0]
+        if idx == -1:
+            time.sleep(0.01)
+            continue
+
+        with states.lock:
+            try:
+                states.global_optimizer_tasks.pop(0)
+            except:
+                continue
+
+        # Update retrieval database
+        retrieval_inds = retrieval_database.update(
+            keyframes[idx],
+            add_after_query=True,
+            k=config["retrieval"]["k"],
+            min_thresh=config["retrieval"]["min_thresh"],
+        )
+        
+        # Process loop closures with semantic verification
+        if config["global_opt"]["use_loop_closures"]:
+            loop_kf_idx = []
+            loop_kf_idx += retrieval_inds
+            successful_loop_closure = False
+            
+            if loop_kf_idx:
+                loop_kf_idx = list(loop_kf_idx)
+                frame_idx = [idx] * len(loop_kf_idx)
+                
+                # Add factors with semantic verification
+                if factor_graph.add_factors(
+                    frame_idx,
+                    loop_kf_idx,
+                    config["global_opt"]["loop_confidence_threshold"],
+                ):
+                    successful_loop_closure = True
+                    
+                    # Update track manager on successful loop closure
+                    if semantic_backend and successful_loop_closure:
+                        for loop_idx in loop_kf_idx:
+                            semantic_backend.update_tracks_on_loop_closure(idx, loop_idx)
+                            
+            with states.lock:
+                states.edges_ii.append(
+                    factor_graph.ii.cpu().numpy()
+                )
+                states.edges_jj.append(
+                    factor_graph.jj.cpu().numpy()
+                )
+                
+        # Print statistics
+        print(f"KF {idx} | Matching | #factors: {len(factor_graph.ii)}, #frames {len(keyframes)}")
+
+        # Run optimization
+        if config["use_calib"]:
+            factor_graph.solve_GN_calib()
+        else:
+            factor_graph.solve_GN_rays()
+
+
+def relocalization_with_semantics(frame, keyframes, factor_graph, retrieval_database, semantic_backend):
+    """
+    Enhanced relocalization with semantic verification.
+    """
+    with keyframes.lock:
+        kf_idx = []
+        retrieval_inds = retrieval_database.update(
+            frame,
+            add_after_query=False,
+            k=config["retrieval"]["k"],
+            min_thresh=config["retrieval"]["min_thresh"],
+        )
+        kf_idx += retrieval_inds
+        successful_loop_closure = False
+        
+        if kf_idx:
+            keyframes.append(frame)
+            n_kf = len(keyframes)
+            kf_idx = list(kf_idx)
+            frame_idx = [n_kf - 1] * len(kf_idx)
+            
+            print("RELOCALIZING against kf ", n_kf - 1, " and ", kf_idx)
+            
+            # Add factors with semantic verification
+            if factor_graph.add_factors(
+                frame_idx,
+                kf_idx,
+                config["reloc"]["min_match_frac"],
+                is_reloc=config["reloc"]["strict"],
+            ):
+                retrieval_database.update(
+                    frame,
+                    add_after_query=True,
+                    k=config["retrieval"]["k"],
+                    min_thresh=config["retrieval"]["min_thresh"],
+                )
+                print("Success! Relocalized")
+                successful_loop_closure = True
+                keyframes.T_WC[n_kf - 1] = keyframes.T_WC[kf_idx[0]].clone()
+                
+                # Update semantic tracks
+                if semantic_backend and successful_loop_closure:
+                    semantic_backend.update_tracks_on_loop_closure(n_kf - 1, kf_idx[0])
+            else:
+                keyframes.pop_last()
+                print("Failed to relocalize")
+
+        if successful_loop_closure:
+            if config["use_calib"]:
+                factor_graph.solve_GN_calib()
+            else:
+                factor_graph.solve_GN_rays()
+                
+        return successful_loop_closure

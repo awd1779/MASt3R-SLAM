@@ -1,0 +1,135 @@
+{
+  "keyframe_idx": 1,
+  "keyframe_shape": [
+    384,
+    512
+  ],
+  "instances": {
+    "1": {
+      "label": "a table",
+      "confidence": 0.9132925868034363,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 375
+    },
+    "2": {
+      "label": "a window",
+      "confidence": 0.8850273489952087,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 171
+    },
+    "3": {
+      "label": "a door",
+      "confidence": 0.7739730477333069,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 501
+    },
+    "4": {
+      "label": "a vase",
+      "confidence": 0.7003427147865295,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 95
+    },
+    "5": {
+      "label": "a ceiling",
+      "confidence": 0.6104671955108643,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 146
+    },
+    "6": {
+      "label": "a rug",
+      "confidence": 0.57199627161026,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 270
+    },
+    "7": {
+      "label": "a lamp",
+      "confidence": 0.5635610222816467,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 119
+    },
+    "8": {
+      "label": "a wall",
+      "confidence": 0.4723578095436096,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 977
+    },
+    "9": {
+      "label": "a plate",
+      "confidence": 0.4676070213317871,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 27
+    },
+    "10": {
+      "label": "a vent",
+      "confidence": 0.46729400753974915,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 107
+    },
+    "11": {
+      "label": "a basket",
+      "confidence": 0.4363275468349457,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 65
+    },
+    "12": {
+      "label": "a blanket",
+      "confidence": 0.3527573049068451,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 31
+    },
+    "13": {
+      "label": "a book",
+      "confidence": 0.34300073981285095,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 39
+    },
+    "14": {
+      "label": "a picture",
+      "confidence": 0.3245318531990051,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 1826
+    }
+  }
+}

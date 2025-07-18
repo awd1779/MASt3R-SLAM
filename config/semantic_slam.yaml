@@ -5,8 +5,7 @@ verbose: true
 semantic_segmentation:
   enabled: true
   
-  # Use mock processor (set to false to use real Grounded-SAM2)
-  use_mock: false
+  # Mock mode removed - always uses real Grounded-SAM2
   
   # Perception front-end choice for experiments
   # Options: "grounded_sam" (proposed), "sam_clip" (baseline)
@@ -18,6 +17,13 @@ semantic_segmentation:
     grounding_model: "grounding_dino_swin-b"
     device: "cuda:0"
     confidence_threshold: 0.35
+    dtype: "float32"  # Options: "float32", "float16", "bfloat16" - float32 for maximum compatibility
+    
+    # Debug and evaluation settings
+    debug_mode: false  # Enable verbose logging and debug visualizations
+    save_debug_visualizations: false  # Save detection/mask visualizations
+    deduplication_iou_threshold: 0.9  # IoU threshold for removing duplicate detections
+    mask_refinement_threshold: 0.7  # Refine box if mask occupies less than this ratio
   
   # Initial Vocabulary (can be updated dynamically via API)
   initial_vocabulary: ["monitor", "chair", "table", "bottle", "container", "headset", "bag", "rubbish bin", "laptop", "floor", "coffee cup", "mouse" ]
@@ -28,22 +34,22 @@ semantic_segmentation:
     enable_semantic_factor: false
     semantic_weight: 0.05
 
-# Semantic loop closure verification
-semantic_loop_closure:
-  enabled: true
-  
-  # Minimum fraction of matched points that must have consistent semantic labels
-  min_semantic_overlap: 0.3
-  
-  # Minimum overlap for instance-level matching
-  min_instance_overlap: 0.2
-  
-  # Minimum cosine similarity between label histograms
-  histogram_similarity: 0.5
-  
-  # Weight factor for semantic scores in optimization (0 = no weighting)
-  # Positive values boost confidence of semantically consistent matches
-  weight_factor: 0.0  # Start with 0, can experiment with 0.1-0.3
-  
-  # Verbose output for debugging
-  verbose_rejection: true
+# Semantic loop closure verification (REMOVED - functionality disabled)
+# semantic_loop_closure:
+#   enabled: true
+#   
+#   # Minimum fraction of matched points that must have consistent semantic labels
+#   min_semantic_overlap: 0.3
+#   
+#   # Minimum overlap for instance-level matching
+#   min_instance_overlap: 0.2
+#   
+#   # Minimum cosine similarity between label histograms
+#   histogram_similarity: 0.5
+#   
+#   # Weight factor for semantic scores in optimization (0 = no weighting)
+#   # Positive values boost confidence of semantically consistent matches
+#   weight_factor: 0.0  # Start with 0, can experiment with 0.1-0.3
+#   
+#   # Verbose output for debugging
+#   verbose_rejection: true

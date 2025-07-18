@@ -8,7 +8,7 @@ from typing import List, Dict, Set
 
 logger = logging.getLogger(__name__)
 
-def load_replica_vocabulary(dataset_path: str) -> List[str]:
+def load_replica_vocabulary(dataset_path: str, use_only_present_objects: bool = True) -> List[str]:
     """
     Load vocabulary from Replica dataset's info_semantic.json.
     
@@ -48,7 +48,9 @@ def load_replica_vocabulary(dataset_path: str) -> List[str]:
         for obj in data.get('objects', []):
             class_name = obj.get('class_name', '')
             if class_name and class_name != 'undefined':
-                class_names.add(class_name)
+                # Replace hyphens with spaces for better Grounding DINO compatibility
+                class_name_clean = class_name.replace('-', ' ')
+                class_names.add(class_name_clean)
             elif class_name == 'undefined':
                 undefined_count += 1
         
@@ -130,4 +132,47 @@ def get_replica_instance_mapping(dataset_path: str) -> Dict[int, Dict]:
         
     except Exception as e:
         logger.error(f"Error loading instance mapping: {e}")
+        return {}
+
+
+def get_scene_specific_vocabulary(dataset_path: str) -> Dict[str, int]:
+    """
+    Get vocabulary of objects actually present in this specific scene with their counts.
+    
+    Returns:
+        Dict mapping class_name to count
+    """
+    dataset_path = Path(dataset_path)
+    info_semantic_path = dataset_path / "info_semantic.json"
+    
+    if not info_semantic_path.exists():
+        logger.warning(f"info_semantic.json not found in {dataset_path}")
+        return {}
+    
+    try:
+        with open(info_semantic_path, 'r') as f:
+            data = json.load(f)
+        
+        # Count objects by class name
+        class_counts = {}
+        undefined_count = 0
+        
+        for obj in data.get('objects', []):
+            class_name = obj.get('class_name', '')
+            if class_name and class_name != 'undefined':
+                # Replace hyphens with spaces for better Grounding DINO compatibility
+                class_name_clean = class_name.replace('-', ' ')
+                class_counts[class_name_clean] = class_counts.get(class_name_clean, 0) + 1
+            elif class_name == 'undefined':
+                undefined_count += 1
+        
+        logger.info(f"Scene contains {len(class_counts)} unique object types")
+        logger.info(f"Object counts: {dict(sorted(class_counts.items(), key=lambda x: -x[1]))}")
+        if undefined_count > 0:
+            logger.info(f"Skipped {undefined_count} undefined objects")
+        
+        return class_counts
+        
+    except Exception as e:
+        logger.error(f"Error loading scene vocabulary: {e}")
         return {}

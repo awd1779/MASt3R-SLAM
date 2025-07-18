@@ -1,0 +1,144 @@
+{
+  "keyframe_idx": 4,
+  "keyframe_shape": [
+    384,
+    512
+  ],
+  "instances": {
+    "1": {
+      "label": "a table",
+      "confidence": 0.8825668096542358,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 345
+    },
+    "2": {
+      "label": "a picture",
+      "confidence": 0.7599433660507202,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 393
+    },
+    "3": {
+      "label": "a lamp",
+      "confidence": 0.6685382723808289,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 123
+    },
+    "4": {
+      "label": "a sofa",
+      "confidence": 0.6140091419219971,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 561
+    },
+    "5": {
+      "label": "a blinds",
+      "confidence": 0.5676963925361633,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 241
+    },
+    "6": {
+      "label": "a rug",
+      "confidence": 0.5538444519042969,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 747
+    },
+    "7": {
+      "label": "a basket",
+      "confidence": 0.5347619652748108,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 73
+    },
+    "8": {
+      "label": "a indoor plant",
+      "confidence": 0.5281440615653992,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 147
+    },
+    "9": {
+      "label": "a floor",
+      "confidence": 0.5239683985710144,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 705
+    },
+    "10": {
+      "label": "a chair",
+      "confidence": 0.519007682800293,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 155
+    },
+    "11": {
+      "label": "a ceiling",
+      "confidence": 0.4974038302898407,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 250
+    },
+    "12": {
+      "label": "a candle",
+      "confidence": 0.4691590666770935,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 73
+    },
+    "13": {
+      "label": "a book",
+      "confidence": 0.38567760586738586,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 59
+    },
+    "14": {
+      "label": "a door",
+      "confidence": 0.3450527787208557,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 605
+    },
+    "15": {
+      "label": "a switch",
+      "confidence": 0.3229140639305115,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 19
+    }
+  }
+}

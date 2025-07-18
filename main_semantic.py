@@ -31,7 +31,6 @@ import queue
 
 # Import semantic components
 from mast3r_slam.semantic_frame import SharedSemanticKeyframes, create_semantic_frame
-from mast3r_slam.semantic_processor import start_semantic_processor
 from mast3r_slam.grounded_sam2_real import start_real_grounded_sam2_processor
 from mast3r_slam.grounded_sam2_config import GroundedSAM2ModelSelector
 
@@ -111,7 +110,7 @@ def relocalization(frame, keyframes, factor_graph, retrieval_database):
 def run_backend(cfg, model, states, keyframes, semantic_keyframes, semantic_result_queue, K):
     # Use semantic backend if semantic segmentation is enabled
     if config.get("semantic_segmentation", {}).get("enabled", False):
-        from mast3r_slam.semantic_backend_integration import run_semantic_backend
+        from mast3r_slam.semantic_integration import run_semantic_backend
         return run_semantic_backend(cfg, model, states, keyframes, semantic_keyframes, semantic_result_queue, K)
     
     # Otherwise use standard backend
@@ -248,65 +247,77 @@ if __name__ == "__main__":
         # Get initial vocabulary - try to load from Replica dataset first
         vocabulary = config["semantic_segmentation"].get("initial_vocabulary", 
                                                          ["chair", "table", "car", "bottle"])
+        # Sort for consistency
+        vocabulary = sorted(vocabulary)
         
         # If this is a Replica dataset, try to load vocabulary from info_semantic.json
         if any(pattern in args.dataset for pattern in ["room_", "apartment_", "replica"]):
             try:
-                from mast3r_slam.replica_vocabulary_loader import load_replica_vocabulary
-                replica_vocab = load_replica_vocabulary(args.dataset)
-                if replica_vocab:
-                    vocabulary = replica_vocab
-                    logger.info(f"Loaded Replica vocabulary with {len(vocabulary)} classes")
+                from mast3r_slam.replica_vocabulary_loader import load_replica_vocabulary, get_scene_specific_vocabulary
+                
+                # Get scene-specific vocabulary (objects actually present)
+                scene_vocab = get_scene_specific_vocabulary(args.dataset)
+                if scene_vocab:
+                    # Use only objects present in the scene
+                    vocabulary = sorted(list(scene_vocab.keys()))
+                    logger.info(f"Using scene-specific vocabulary with {len(vocabulary)} object types")
+                    logger.info(f"Scene vocabulary: {vocabulary}")
+                else:
+                    # Fallback to all possible Replica classes
+                    replica_vocab = load_replica_vocabulary(args.dataset)
+                    if replica_vocab:
+                        vocabulary = sorted(replica_vocab)
+                        logger.info(f"Loaded full Replica vocabulary with {len(vocabulary)} classes (sorted)")
             except Exception as e:
                 logger.warning(f"Failed to load Replica vocabulary: {e}")
                 logger.info("Using vocabulary from config")
         
         # Get device and model settings
         semantic_device = config["semantic_segmentation"]["grounded_sam2"].get("device", "cuda:1")
-        use_mock = config["semantic_segmentation"].get("use_mock", False)
         
-        if use_mock:
-            logger.info("Using mock semantic processor")
-            # Start mock semantic processor
-            semantic_processor = start_semantic_processor(
-                semantic_frame_queue, 
-                semantic_result_queue,
-                vocabulary,
-                semantic_device
-            )
-        else:
-            logger.info("Using real Grounded-SAM2 processor")
-            # Configure model selector based on config
-            model_selector = GroundedSAM2ModelSelector(
-                target_fps=15,
-                max_vram_gb=24,  # We have 22GB available
-                quality_priority="quality"
-            )
-            
-            # Force the models from config
-            sam2_model = config["semantic_segmentation"]["grounded_sam2"]["model_type"]
-            grounding_model = config["semantic_segmentation"]["grounded_sam2"]["grounding_model"]
-            model_selector.sam2_model = sam2_model
-            model_selector.grounding_model = grounding_model
-            
-            # Start real Grounded-SAM2 processor
-            # Pass model directories explicitly
-            sam2_dir = str(Path.home() / "models" / "segment-anything-2")
-            grounding_dir = str(Path.home() / "models" / "GroundingDINO")
-            
-            # Get confidence threshold from config
-            confidence_threshold = config["semantic_segmentation"]["grounded_sam2"]["confidence_threshold"]
-            
-            semantic_processor = start_real_grounded_sam2_processor(
-                semantic_frame_queue, 
-                semantic_result_queue,
-                vocabulary,
-                semantic_device,
-                model_selector,
-                confidence_threshold=confidence_threshold,
-                sam2_checkpoint_dir=sam2_dir,
-                grounding_dino_checkpoint_dir=grounding_dir
-            )
+        logger.info("Using Grounded-SAM2 processor")
+        # Configure model selector based on config
+        model_selector = GroundedSAM2ModelSelector(
+            target_fps=15,
+            max_vram_gb=24,  # We have 22GB available
+            quality_priority="quality"
+        )
+        
+        # Force the models from config
+        sam2_model = config["semantic_segmentation"]["grounded_sam2"]["model_type"]
+        grounding_model = config["semantic_segmentation"]["grounded_sam2"]["grounding_model"]
+        model_selector.sam2_model = sam2_model
+        model_selector.grounding_model = grounding_model
+        
+        # Start Grounded-SAM2 processor
+        # Pass model directories explicitly
+        sam2_dir = str(Path.home() / "models" / "segment-anything-2")
+        grounding_dir = str(Path.home() / "models" / "GroundingDINO")
+        
+        # Get configuration from config
+        grounded_sam2_config = config["semantic_segmentation"]["grounded_sam2"]
+        confidence_threshold = grounded_sam2_config["confidence_threshold"]
+        dtype = grounded_sam2_config.get("dtype", "bfloat16")  # Default to bfloat16 if not specified
+        debug_mode = grounded_sam2_config.get("debug_mode", False)
+        save_debug_visualizations = grounded_sam2_config.get("save_debug_visualizations", False)
+        deduplication_iou_threshold = grounded_sam2_config.get("deduplication_iou_threshold", 0.9)
+        mask_refinement_threshold = grounded_sam2_config.get("mask_refinement_threshold", 0.7)
+        
+        semantic_processor = start_real_grounded_sam2_processor(
+            semantic_frame_queue, 
+            semantic_result_queue,
+            vocabulary,
+            semantic_device,
+            model_selector,
+            confidence_threshold=confidence_threshold,
+            dtype=dtype,
+            sam2_checkpoint_dir=sam2_dir,
+            grounding_dino_checkpoint_dir=grounding_dir,
+            debug_mode=debug_mode,
+            save_debug_visualizations=save_debug_visualizations,
+            deduplication_iou_threshold=deduplication_iou_threshold,
+            mask_refinement_threshold=mask_refinement_threshold
+        )
     
     # Start continuous semantic result processor thread
     semantic_result_thread = None
@@ -446,7 +457,7 @@ if __name__ == "__main__":
             
             # Send first keyframe to semantic processor
             if semantic_frame_queue is not None:
-                img_numpy = (img_resized["unnormalized_img"] * 255).clip(0, 255).astype('uint8')
+                img_numpy = img_resized["unnormalized_img"].astype('uint8')
                 semantic_msg = {
                     'img': img_numpy,
                     'frame_id': i,
@@ -493,7 +504,7 @@ if __name__ == "__main__":
             # Send keyframe to semantic processor
             if semantic_frame_queue is not None:
                 # Convert resized image to numpy array for semantic processing
-                img_numpy = (img_resized["unnormalized_img"] * 255).clip(0, 255).astype('uint8')
+                img_numpy = img_resized["unnormalized_img"].astype('uint8')
                 semantic_msg = {
                     'img': img_numpy,
                     'frame_id': i,
@@ -548,7 +559,6 @@ if __name__ == "__main__":
         
         # Save semantic reconstruction if enabled
         if semantic_keyframes is not None:
-            from mast3r_slam.semantic_export import save_semantic_reconstruction
             from mast3r_slam.track_manager import GlobalTrackManager
             from mast3r_slam.semantic_integration import SemanticSLAMBackend
             
@@ -588,7 +598,6 @@ if __name__ == "__main__":
                 keyframes,
                 semantic_keyframes,
                 str(save_dir / f"{seq_name}_semantic_dense.ply"),
-                confidence_threshold=0.3,
                 use_semantic_colors=True,
                 debug=True,
                 semantic_backend=semantic_backend

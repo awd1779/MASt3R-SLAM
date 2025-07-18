@@ -1,0 +1,22 @@
+Frame 13 - Segmentation Results
+Total masks: 19
+
+1. a table: 14349 pixels (7.30% of image)
+2. a sofa: 27320 pixels (13.90% of image)
+3. a picture: 20719 pixels (10.54% of image)
+4. a blinds: 20076 pixels (10.21% of image)
+5. a indoor plant: 2646 pixels (1.35% of image)
+6. a rug: 23881 pixels (12.15% of image)
+7. a basket: 2279 pixels (1.16% of image)
+8. a floor: 23720 pixels (12.06% of image)
+9. a ceiling: 37829 pixels (19.24% of image)
+10. a lamp: 1181 pixels (0.60% of image)
+11. a stool: 5291 pixels (2.69% of image)
+12. a book: 1883 pixels (0.96% of image)
+13. a chair: 4269 pixels (2.17% of image)
+14. a wall plug: 169 pixels (0.09% of image)
+15. a vase: 896 pixels (0.46% of image)
+16. a switch: 379 pixels (0.19% of image)
+17. a candle: 259 pixels (0.13% of image)
+18. a wall: 39852 pixels (20.27% of image)
+19. a door: 23291 pixels (11.85% of image)

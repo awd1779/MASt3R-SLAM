@@ -1,0 +1,162 @@
+{
+  "keyframe_idx": 7,
+  "keyframe_shape": [
+    384,
+    512
+  ],
+  "instances": {
+    "1": {
+      "label": "a indoor plant",
+      "confidence": 0.7645972371101379,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 883
+    },
+    "2": {
+      "label": "a table",
+      "confidence": 0.654694676399231,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 121
+    },
+    "3": {
+      "label": "a ceiling",
+      "confidence": 0.5543867945671082,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 322
+    },
+    "4": {
+      "label": "a blinds",
+      "confidence": 0.5388723015785217,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 353
+    },
+    "5": {
+      "label": "a stool",
+      "confidence": 0.4982109069824219,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 377
+    },
+    "6": {
+      "label": "a picture",
+      "confidence": 0.48182201385498047,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 1593
+    },
+    "7": {
+      "label": "a floor",
+      "confidence": 0.4365459680557251,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 725
+    },
+    "8": {
+      "label": "a vent",
+      "confidence": 0.42729076743125916,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 35
+    },
+    "9": {
+      "label": "a cabinet",
+      "confidence": 0.41812267899513245,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 365
+    },
+    "10": {
+      "label": "a window",
+      "confidence": 0.37230849266052246,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 369
+    },
+    "11": {
+      "label": "a wall",
+      "confidence": 0.36669835448265076,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 2702
+    },
+    "12": {
+      "label": "a sofa",
+      "confidence": 0.363936185836792,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 262
+    },
+    "13": {
+      "label": "a pot",
+      "confidence": 0.3389438986778259,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 163
+    },
+    "14": {
+      "label": "a lamp",
+      "confidence": 0.3300374746322632,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 703
+    },
+    "15": {
+      "label": "a vase",
+      "confidence": 0.3139975666999817,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 187
+    },
+    "16": {
+      "label": "a door",
+      "confidence": 0.30768051743507385,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 287
+    },
+    "17": {
+      "label": "a rug",
+      "confidence": 0.30092668533325195,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 563
+    }
+  }
+}

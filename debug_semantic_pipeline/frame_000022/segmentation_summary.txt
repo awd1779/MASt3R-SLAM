@@ -1,0 +1,16 @@
+Frame 22 - Segmentation Results
+Total masks: 13
+
+1. a chair: 24352 pixels (12.39% of image)
+2. a sofa: 22814 pixels (11.60% of image)
+3. a window: 40554 pixels (20.63% of image)
+4. a floor: 12842 pixels (6.53% of image)
+5. a lamp: 1783 pixels (0.91% of image)
+6. a ceiling: 20601 pixels (10.48% of image)
+7. a plant stand: 4454 pixels (2.27% of image)
+8. a plate: 701 pixels (0.36% of image)
+9. a picture: 95484 pixels (48.57% of image)
+10. a lamp: 1951 pixels (0.99% of image)
+11. a blinds: 35438 pixels (18.02% of image)
+12. a table: 4141 pixels (2.11% of image)
+13. a table: 756 pixels (0.38% of image)

@@ -1,0 +1,56 @@
+Frame 22 - deduped detections
+Total detections: 13
+Confidence threshold: 0.3
+
+1. a chair (conf: 0.837)
+   Box: [256.1, 201.9, 431.7, 381.7]
+   Size: 175.6x179.8 (34.3%x46.8% of image)
+
+2. a sofa (conf: 0.701)
+   Box: [0.3, 226.4, 176.4, 382.6]
+   Size: 176.1x156.2 (34.4%x40.7% of image)
+
+3. a window (conf: 0.581)
+   Box: [0.2, 0.6, 237.8, 226.2]
+   Size: 237.7x225.7 (46.4%x58.8% of image)
+
+4. a floor (conf: 0.520)
+   Box: [150.7, 270.3, 467.9, 383.4]
+   Size: 317.2x113.0 (62.0%x29.4% of image)
+
+5. a lamp (conf: 0.422)
+   Box: [156.6, 165.9, 209.7, 215.1]
+   Size: 53.0x49.2 (10.4%x12.8% of image)
+
+6. a ceiling (conf: 0.413)
+   Box: [11.7, 0.0, 483.1, 76.7]
+   Size: 471.4x76.7 (92.1%x20.0% of image)
+
+7. a plant stand (conf: 0.403)
+   Box: [159.3, 242.4, 233.8, 359.9]
+   Size: 74.4x117.5 (14.5%x30.6% of image)
+
+8. a plate (conf: 0.380)
+   Box: [161.0, 243.2, 213.4, 262.3]
+   Size: 52.4x19.0 (10.2%x5.0% of image)
+
+9. a picture (conf: 0.375)
+   Box: [0.3, 1.2, 511.7, 382.2]
+   Size: 511.4x381.0 (99.9%x99.2% of image)
+
+10. a lamp (conf: 0.336)
+   Box: [156.3, 165.0, 210.7, 259.2]
+   Size: 54.3x94.2 (10.6%x24.5% of image)
+
+11. a blinds (conf: 0.321)
+   Box: [312.3, 0.5, 511.8, 224.8]
+   Size: 199.5x224.3 (39.0%x58.4% of image)
+
+12. a table (conf: 0.311)
+   Box: [158.9, 243.9, 231.6, 357.6]
+   Size: 72.8x113.7 (14.2%x29.6% of image)
+
+13. a table (conf: 0.306)
+   Box: [159.8, 244.3, 213.3, 265.2]
+   Size: 53.6x21.0 (10.5%x5.5% of image)
+

@@ -1,0 +1,108 @@
+{
+  "keyframe_idx": 8,
+  "keyframe_shape": [
+    384,
+    512
+  ],
+  "instances": {
+    "1": {
+      "label": "a chair",
+      "confidence": 0.7068284749984741,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 357
+    },
+    "2": {
+      "label": "a blinds",
+      "confidence": 0.6690748333930969,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 468
+    },
+    "3": {
+      "label": "a picture",
+      "confidence": 0.6024683713912964,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 471
+    },
+    "4": {
+      "label": "a floor",
+      "confidence": 0.5800063610076904,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 347
+    },
+    "5": {
+      "label": "a wall",
+      "confidence": 0.4768516421318054,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 697
+    },
+    "6": {
+      "label": "a ceiling",
+      "confidence": 0.4064868688583374,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 188
+    },
+    "7": {
+      "label": "a blanket",
+      "confidence": 0.38814982771873474,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 254
+    },
+    "8": {
+      "label": "a rug",
+      "confidence": 0.3462854325771332,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 81
+    },
+    "9": {
+      "label": "a indoor plant",
+      "confidence": 0.33077895641326904,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 349
+    },
+    "10": {
+      "label": "a sofa",
+      "confidence": 0.329227477312088,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 304
+    },
+    "11": {
+      "label": "a door",
+      "confidence": 0.303469717502594,
+      "rle_size": [
+        384,
+        512
+      ],
+      "rle_counts_length": 470
+    }
+  }
+}

@@ -1,4 +1,4 @@
-"""Real Grounded-SAM2 processor implementation with proper model loading."""
+"""Real Grounded-SAM2 processor implementation - Reduced version."""
 
 import os
 import sys
@@ -18,6 +18,9 @@ from mast3r_slam.grounded_sam2_config import SAM2_MODELS, GROUNDING_MODELS, Grou
 
 logger = logging.getLogger('mast3r_slam.grounded_sam2')
 
+# Debug visualization directory
+DEBUG_OUTPUT_DIR = Path("debug_semantic_pipeline")
+
 
 class RealGroundedSAM2Processor:
     """Real Grounded-SAM2 processor with automatic model path resolution."""
@@ -30,168 +33,215 @@ class RealGroundedSAM2Processor:
                  model_selector: Optional[GroundedSAM2ModelSelector] = None,
                  sam2_checkpoint_dir: Optional[str] = None,
                  grounding_dino_checkpoint_dir: Optional[str] = None,
-                 confidence_threshold: float = 0.35):
+                 confidence_threshold: float = 0.35,
+                 dtype: str = "bfloat16",
+                 debug_mode: bool = False,
+                 save_debug_visualizations: bool = False,
+                 deduplication_iou_threshold: float = 0.9,
+                 mask_refinement_threshold: float = 0.7):
         self.frame_queue = frame_queue
         self.result_queue = result_queue
         self.vocabulary = vocabulary
         self.device = device
         self.confidence_threshold = confidence_threshold
+        self.debug_mode = debug_mode
+        self.save_debug_visualizations = save_debug_visualizations
+        self.deduplication_iou_threshold = deduplication_iou_threshold
+        self.mask_refinement_threshold = mask_refinement_threshold
+        
+        # Convert dtype string to torch dtype
+        self.dtype = {'float32': torch.float32, 'float16': torch.float16, 'bfloat16': torch.bfloat16}.get(dtype, torch.bfloat16)
         
         # Model directories
         self.sam2_checkpoint_dir = sam2_checkpoint_dir
         self.grounding_dino_checkpoint_dir = grounding_dino_checkpoint_dir
         
         # Model selection
-        if model_selector is None:
-            self.model_selector = GroundedSAM2ModelSelector(
-                target_fps=15,
-                max_vram_gb=10,
-                quality_priority="quality"
-            )
-        else:
-            self.model_selector = model_selector
-            
-        # Get model names from selector (which should already be set in main_semantic.py)
-        if hasattr(self.model_selector, 'sam2_model') and self.model_selector.sam2_model:
-            self.sam2_model_name = self.model_selector.sam2_model
-            self.grounding_model_name = self.model_selector.grounding_model
-        else:
-            # Fall back to selection if not pre-configured
-            self.sam2_model_name, self.grounding_model_name = self.model_selector.select_models()
+        self.model_selector = model_selector or GroundedSAM2ModelSelector(target_fps=15, max_vram_gb=10, quality_priority="quality")
+        self.sam2_model_name = getattr(self.model_selector, 'sam2_model', None) or self.model_selector.select_models()[0]
+        self.grounding_model_name = getattr(self.model_selector, 'grounding_model', None) or self.model_selector.select_models()[1]
         
         # Model instances
         self.sam2_predictor = None
         self.grounding_dino = None
         self.transform = None
         
-        # Current frame state for image mode
-        self.current_image_set = False
-        
         # Track management
-        self.current_tracks = {}
         self.next_track_id = 1
-        
-        # Performance tracking
         self.frame_times = []
         
-    def find_model_paths(self) -> Tuple[str, str, str, str]:
-        """Automatically find model paths."""
-        # Start with custom paths if provided
-        search_paths = []
+        # Debug counters
+        self.debug_frame_counter = 0
         
-        if self.sam2_checkpoint_dir:
-            search_paths.append(Path(self.sam2_checkpoint_dir))
-        if self.grounding_dino_checkpoint_dir:
-            search_paths.append(Path(self.grounding_dino_checkpoint_dir))
+    def visualize_detections(self, image: np.ndarray, boxes: torch.Tensor, labels: List[str], 
+                             scores: torch.Tensor, frame_idx: int, stage: str = "grounding"):
+        """Visualize bounding boxes on image and save to file."""
+        if not self.save_debug_visualizations:
+            return
             
-        # Common locations to search
-        search_paths.extend([
+        # Create debug directory
+        debug_dir = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create a copy of the image
+        vis_image = image.copy()
+        h, w = image.shape[:2]
+        
+        # Define colors for different stages
+        colors = {
+            'grounding': (0, 255, 0),     # Green for Grounding DINO detections
+            'deduped': (255, 165, 0),     # Orange for after deduplication
+            'final': (0, 0, 255)          # Red for final detections
+        }
+        color = colors.get(stage, (255, 255, 255))
+        
+        # Draw each box
+        for box, label, score in zip(boxes, labels, scores):
+            x1, y1, x2, y2 = box.int().tolist()
+            
+            # Draw rectangle
+            cv2.rectangle(vis_image, (x1, y1), (x2, y2), color, 2)
+            
+            # Add label with confidence
+            label_text = f"{label} ({score:.2f})"
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.6
+            font_thickness = 2
+            
+            # Get text size for background
+            (text_width, text_height), _ = cv2.getTextSize(label_text, font, font_scale, font_thickness)
+            
+            # Draw background rectangle for text
+            cv2.rectangle(vis_image, (x1, y1 - text_height - 5), (x1 + text_width + 5, y1), color, -1)
+            
+            # Draw text
+            cv2.putText(vis_image, label_text, (x1 + 2, y1 - 5), font, font_scale, (255, 255, 255), font_thickness)
+        
+        # Add stage info
+        cv2.putText(vis_image, f"Stage: {stage} | Total: {len(boxes)} detections", 
+                   (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
+        
+        # Save image
+        save_path = debug_dir / f"{stage}_detections.jpg"
+        cv2.imwrite(str(save_path), vis_image)
+        logger.info(f"Saved {stage} visualization to {save_path}")
+        
+        # Also save detection details to text file
+        text_path = debug_dir / f"{stage}_details.txt"
+        with open(text_path, 'w') as f:
+            f.write(f"Frame {frame_idx} - {stage} detections\n")
+            f.write(f"Total detections: {len(boxes)}\n")
+            f.write(f"Confidence threshold: {self.confidence_threshold}\n\n")
+            for i, (box, label, score) in enumerate(zip(boxes, labels, scores)):
+                x1, y1, x2, y2 = box.tolist()
+                box_width = x2 - x1
+                box_height = y2 - y1
+                f.write(f"{i+1}. {label} (conf: {score:.3f})\n")
+                f.write(f"   Box: [{x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f}]\n")
+                f.write(f"   Size: {box_width:.1f}x{box_height:.1f} ({box_width/w*100:.1f}%x{box_height/h*100:.1f}% of image)\n\n")
+    
+    def visualize_masks(self, image: np.ndarray, masks: List[np.ndarray], labels: List[str], 
+                       frame_idx: int):
+        """Visualize segmentation masks and save to file."""
+        if not self.save_debug_visualizations:
+            return
+            
+        debug_dir = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create overlay image
+        overlay = image.copy()
+        h, w = image.shape[:2]
+        
+        # Create separate mask for each instance
+        for idx, (mask, label) in enumerate(zip(masks, labels)):
+            # Create colored mask
+            mask_color = np.zeros_like(image)
+            color = np.array([
+                (idx * 67) % 255,
+                (idx * 131) % 255,
+                (idx * 193) % 255
+            ])
+            mask_color[mask > 0] = color
+            
+            # Apply to overlay
+            overlay[mask > 0] = overlay[mask > 0] * 0.5 + mask_color[mask > 0] * 0.5
+            
+            # Save individual mask
+            mask_path = debug_dir / f"mask_{idx:02d}_{label}.png"
+            cv2.imwrite(str(mask_path), (mask * 255).astype(np.uint8))
+        
+        # Add labels
+        for idx, (mask, label) in enumerate(zip(masks, labels)):
+            # Find mask center
+            mask_indices = np.where(mask > 0)
+            if len(mask_indices[0]) > 0:
+                cy = int(np.mean(mask_indices[0]))
+                cx = int(np.mean(mask_indices[1]))
+                cv2.putText(overlay, label, (cx-20, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        
+        # Save overlay
+        overlay_path = debug_dir / "segmentation_overlay.jpg"
+        cv2.imwrite(str(overlay_path), overlay)
+        
+        # Save summary
+        summary_path = debug_dir / "segmentation_summary.txt"
+        with open(summary_path, 'w') as f:
+            f.write(f"Frame {frame_idx} - Segmentation Results\n")
+            f.write(f"Total masks: {len(masks)}\n\n")
+            for idx, (mask, label) in enumerate(zip(masks, labels)):
+                mask_pixels = np.sum(mask > 0)
+                mask_percentage = (mask_pixels / (h * w)) * 100
+                f.write(f"{idx+1}. {label}: {mask_pixels} pixels ({mask_percentage:.2f}% of image)\n")
+    
+    def find_model_paths(self) -> Tuple[str, str, str, str]:
+        """Automatically find model paths - simplified version."""
+        search_paths = [
+            Path(self.sam2_checkpoint_dir) if self.sam2_checkpoint_dir else None,
+            Path(self.grounding_dino_checkpoint_dir) if self.grounding_dino_checkpoint_dir else None,
             Path.home() / "models",
             Path.home() / "libs",
             Path("/workspace"),
-            Path("/content"),  # Colab
             Path.cwd() / "models",
-            Path.cwd().parent / "models",
-        ])
-            
-        # Debug: log search paths
-        logger.debug(f"Searching for models in: {[str(p) for p in search_paths[:3]]}")
-            
-        # SAM2 model info
-        sam2_info = SAM2_MODELS[self.sam2_model_name]
-        sam2_checkpoint = None
-        sam2_config = None
+        ]
+        search_paths = [p for p in search_paths if p]
         
-        # Grounding DINO model info
-        grounding_info = GROUNDING_MODELS[self.grounding_model_name]
-        grounding_checkpoint = None
-        grounding_config = None
+        sam2_checkpoint = sam2_config = grounding_checkpoint = grounding_config = None
         
-        # Search for SAM2 files - try both versions
-        sam2_filenames = {
+        # SAM2 filename mapping
+        sam2_files = {
             "hiera_tiny": ["sam2_hiera_tiny.pt", "sam2.1_hiera_tiny.pt"],
-            "hiera_small": ["sam2_hiera_small.pt", "sam2.1_hiera_small.pt"], 
+            "hiera_small": ["sam2_hiera_small.pt", "sam2.1_hiera_small.pt"],
             "hiera_b+": ["sam2_hiera_base_plus.pt", "sam2.1_hiera_base_plus.pt"],
             "hiera_base+": ["sam2_hiera_base_plus.pt", "sam2.1_hiera_base_plus.pt"],
             "hiera_large": ["sam2_hiera_large.pt", "sam2.1_hiera_large.pt"]
-        }
+        }.get(self.sam2_model_name, [])
+        
+        grounding_files = {
+            "grounding_dino_swin-t": "groundingdino_swint_ogc.pth",
+            "grounding_dino_swin-b": "groundingdino_swinb_cogcoor.pth"
+        }.get(self.grounding_model_name, "")
         
         for path in search_paths:
-            # Check for SAM2
-            sam2_dirs = [
-                path / "segment-anything-2",
-                path / "sam2",
-                path / "SAM2"
-            ]
-            
-            for sam2_dir in sam2_dirs:
-                if sam2_dir.exists():
-                    logger.debug(f"  Checking SAM2 dir: {sam2_dir}")
-                    # Look for checkpoint
-                    ckpt_files = sam2_filenames.get(self.sam2_model_name, [])
-                    if not isinstance(ckpt_files, list):
-                        ckpt_files = [ckpt_files]
-                    
-                    for ckpt_file in ckpt_files:
-                        logger.debug(f"    Looking for: {ckpt_file}")
-                        ckpt_paths = [
-                            sam2_dir / "checkpoints" / ckpt_file,
-                            sam2_dir / ckpt_file,
-                            sam2_dir / "weights" / ckpt_file
-                        ]
-                        for ckpt_path in ckpt_paths:
+            # Check SAM2
+            for sam2_dir in [path / "segment-anything-2", path / "sam2", path / "SAM2"]:
+                if sam2_dir.exists() and not sam2_checkpoint:
+                    for ckpt_file in sam2_files:
+                        for ckpt_path in [sam2_dir / "checkpoints" / ckpt_file, sam2_dir / ckpt_file]:
                             if ckpt_path.exists():
                                 sam2_checkpoint = str(ckpt_path)
-                                logger.info(f"  ✓ Found SAM2 checkpoint: {sam2_checkpoint}")
+                                logger.info(f"Found SAM2 checkpoint: {sam2_checkpoint}")
                                 break
                         if sam2_checkpoint:
                             break
-                                
-                    # Look for config
-                    config_paths = [
-                        sam2_dir / "sam2_configs" / f"{self.sam2_model_name}.yaml",
-                        sam2_dir / "configs" / f"{self.sam2_model_name}.yaml",
-                    ]
-                    for cfg_path in config_paths:
-                        if cfg_path.exists():
-                            sam2_config = str(cfg_path)
-                            break
                             
-            # Check for Grounding DINO
-            grounding_dirs = [
-                path / "GroundingDINO",
-                path / "groundingdino",
-                path / "grounding-dino"
-            ]
-            
-            for grounding_dir in grounding_dirs:
-                if grounding_dir.exists():
-                    # Look for checkpoint
-                    ckpt_names = {
-                        "grounding_dino_swin-t": "groundingdino_swint_ogc.pth",
-                        "grounding_dino_swin-b": "groundingdino_swinb_cogcoor.pth"
-                    }
-                    ckpt_file = ckpt_names.get(self.grounding_model_name)
-                    if ckpt_file:
-                        ckpt_paths = [
-                            grounding_dir / "weights" / ckpt_file,
-                            grounding_dir / ckpt_file,
-                            grounding_dir / "checkpoints" / ckpt_file
-                        ]
-                        for ckpt_path in ckpt_paths:
-                            if ckpt_path.exists():
-                                grounding_checkpoint = str(ckpt_path)
-                                break
-                                
-                    # Look for config
-                    config_paths = [
-                        grounding_dir / "groundingdino" / "config" / "GroundingDINO_SwinB_cfg.py",
-                        grounding_dir / "groundingdino" / "config" / "GroundingDINO_SwinT_OGC.py",
-                        grounding_dir / "config" / "GroundingDINO_SwinB_cfg.py"
-                    ]
-                    for cfg_path in config_paths:
-                        if cfg_path.exists():
-                            grounding_config = str(cfg_path)
+            # Check Grounding DINO
+            for grounding_dir in [path / "GroundingDINO", path / "groundingdino", path]:
+                if grounding_dir.exists() and not grounding_checkpoint and grounding_files:
+                    for ckpt_path in [grounding_dir / "weights" / grounding_files, grounding_dir / grounding_files]:
+                        if ckpt_path.exists():
+                            grounding_checkpoint = str(ckpt_path)
+                            logger.info(f"Found Grounding DINO checkpoint: {grounding_checkpoint}")
                             break
                             
         return sam2_checkpoint, sam2_config, grounding_checkpoint, grounding_config
@@ -199,340 +249,387 @@ class RealGroundedSAM2Processor:
     def initialize_models(self):
         """Initialize Grounded-SAM2 models with automatic path finding."""
         try:
-            use_mock = config.get("semantic_segmentation", {}).get("use_mock", False)
-            
-            if use_mock:
-                logger.info("Using mock semantic processor (set use_mock=false for real models)")
-                return
-                
             # Fix Grounding DINO path
-            grounding_paths = [
-                Path.home() / "Grounded-SAM-2",
-                Path.home() / "grounded-sam-2", 
-                Path("/workspace") / "Grounded-SAM-2",
-                Path.cwd() / "Grounded-SAM-2"
-            ]
-            
-            for path in grounding_paths:
+            for path in [Path.home() / "Grounded-SAM-2", Path("/workspace") / "Grounded-SAM-2"]:
                 if path.exists() and (path / "grounding_dino").exists():
                     sys.path.insert(0, str(path))
                     break
             
             # Import required modules
-            from sam2.build_sam import build_sam2, build_sam2_video_predictor
+            from sam2.build_sam import build_sam2
             from sam2.sam2_image_predictor import SAM2ImagePredictor
-            from sam2.utils.misc import get_sdpa_settings
             from grounding_dino.groundingdino.util.inference import load_model
-            from grounding_dino.groundingdino.util.slconfig import SLConfig
             import grounding_dino.groundingdino.datasets.transforms as T
-            from torchvision.ops import box_convert
             
             # Find model paths
-            sam2_ckpt, sam2_cfg, grounding_ckpt, grounding_cfg = self.find_model_paths()
+            sam2_ckpt, _, grounding_ckpt, grounding_cfg = self.find_model_paths()
             
             if not all([sam2_ckpt, grounding_ckpt]):
-                raise FileNotFoundError(
-                    f"Could not find model files:\n"
-                    f"  SAM2 checkpoint: {sam2_ckpt}\n"
-                    f"  Grounding DINO checkpoint: {grounding_ckpt}\n"
-                    f"Please check GROUNDED_SAM2_INSTALLATION.md"
-                )
+                raise FileNotFoundError(f"Could not find model files")
                 
             logger.info(f"Loading SAM2 model: {self.sam2_model_name}")
-            logger.info(f"  Checkpoint: {sam2_ckpt}")
             
             # Determine config name for SAM2
-            if "b+" in self.sam2_model_name or "base_plus" in self.sam2_model_name:
-                config_name = "sam2_hiera_b+.yaml"
-            elif "tiny" in self.sam2_model_name:
-                config_name = "sam2_hiera_t.yaml"
-            elif "small" in self.sam2_model_name:
-                config_name = "sam2_hiera_s.yaml"
-            elif "large" in self.sam2_model_name:
-                config_name = "sam2_hiera_l.yaml"
-            else:
-                config_name = "sam2_hiera_b+.yaml"
-                
-            logger.debug(f"  Config: {config_name}")
+            config_map = {
+                "tiny": "sam2_hiera_t.yaml",
+                "small": "sam2_hiera_s.yaml", 
+                "b+": "sam2_hiera_b+.yaml",
+                "base_plus": "sam2_hiera_b+.yaml",
+                "large": "sam2_hiera_l.yaml"
+            }
+            config_name = next((v for k, v in config_map.items() if k in self.sam2_model_name), "sam2_hiera_b+.yaml")
             
-            # Initialize SAM2 in IMAGE MODE for keyframe segmentation
-            # We don't need video tracking between keyframes
-            sam2_model = build_sam2(
-                config_file=config_name,
-                ckpt_path=sam2_ckpt,
-                device=self.device
-            )
+            # Initialize SAM2
+            sam2_model = build_sam2(config_file=config_name, ckpt_path=sam2_ckpt, device=self.device).to(dtype=self.dtype)
             self.sam2_predictor = SAM2ImagePredictor(sam2_model)
             
+            # Initialize Grounding DINO
             logger.info(f"Loading Grounding DINO model: {self.grounding_model_name}")
-            logger.info(f"  Checkpoint: {grounding_ckpt}")
             
-            # Find Grounding DINO config if not provided
+            # Find config if not provided
             if not grounding_cfg:
-                # Try to find it in common locations
                 config_paths = [
                     Path.home() / "Grounded-SAM-2" / "grounding_dino" / "groundingdino" / "config" / "GroundingDINO_SwinB_cfg.py",
-                    Path.home() / "GroundingDINO" / "groundingdino" / "config" / "GroundingDINO_SwinB_cfg.py",
-                    Path(grounding_ckpt).parent.parent / "groundingdino" / "config" / "GroundingDINO_SwinB_cfg.py",
-                    Path(grounding_ckpt).parent.parent / "config" / "GroundingDINO_SwinB_cfg.py"
+                    Path(grounding_ckpt).parent.parent / "groundingdino" / "config" / "GroundingDINO_SwinB_cfg.py"
                 ]
+                grounding_cfg = next((str(p) for p in config_paths if p.exists()), None)
                 
-                for cfg_path in config_paths:
-                    if cfg_path.exists():
-                        grounding_cfg = str(cfg_path)
-                        break
-                        
-            if grounding_cfg and Path(grounding_cfg).exists():
-                logger.debug(f"  Config: {grounding_cfg}")
-                # Initialize Grounding DINO - load_model expects config path as string
-                self.grounding_dino = load_model(grounding_cfg, grounding_ckpt, device=self.device)
-                self.grounding_dino.eval()
-            else:
-                logger.warning("Config file not found, trying to load without config")
-                # Try to load without config (may fail)
-                try:
-                    self.grounding_dino = load_model(None, grounding_ckpt, device=self.device)
-                    self.grounding_dino.eval()
-                except:
-                    raise FileNotFoundError(
-                        "Grounding DINO config not found. Please ensure Grounded-SAM-2 is properly installed."
-                    )
+            self.grounding_dino = load_model(grounding_cfg, grounding_ckpt, device=self.device)
+            self.grounding_dino.eval()
             
-            # Initialize transform for Grounding DINO
+            # Initialize transform
             self.transform = T.Compose([
                 T.RandomResize([800], max_size=1333),
                 T.ToTensor(),
                 T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
             ])
             
-            # Print success message
-            model_info = self.model_selector.get_model_info(
-                self.sam2_model_name, 
-                self.grounding_model_name
-            )
             logger.info("✅ Models loaded successfully!")
-            logger.info(f"  Total parameters: {model_info['combined']['total_params']}")
-            logger.info(f"  Expected FPS: {model_info['combined']['expected_fps']}")
-            logger.info(f"  Total VRAM: {model_info['combined']['total_vram']}")
             
-        except ImportError as e:
-            logger.error(f"Required packages not installed: {e}")
-            logger.error("Please follow GROUNDED_SAM2_INSTALLATION.md")
-            logger.warning("Setting models to None to use fallback")
-            self.grounding_dino = None
-            self.sam2_predictor = None
-        except FileNotFoundError as e:
-            logger.error(f"Error: {e}")
-            logger.warning("Setting models to None to use fallback")
-            self.grounding_dino = None
-            self.sam2_predictor = None
         except Exception as e:
             logger.error(f"Error initializing models: {e}")
-            if logger.isEnabledFor(logging.DEBUG):
-                import traceback
-                traceback.print_exc()
-            logger.warning("Setting models to None to use fallback")
-            self.grounding_dino = None
-            self.sam2_predictor = None
-            
-    def ground_objects_in_frame(self, image: np.ndarray) -> Tuple[torch.Tensor, List[str], torch.Tensor]:
+            raise RuntimeError("Failed to load models. Check installation.")
+    
+    def ground_objects_in_frame(self, image: np.ndarray, frame_idx: int = -1) -> Tuple[torch.Tensor, List[str], torch.Tensor]:
         """Use Grounding DINO to detect objects based on text prompts."""
         if self.grounding_dino is None:
-            logger.warning("Grounding DINO is None, using mock segmentation!")
-            logger.warning("This means the real model failed to load properly.")
-            # Fallback to mock
-            return self._mock_ground_objects(image)
+            raise RuntimeError("Grounding DINO model not loaded")
             
-        # Fix import path
-        grounding_paths = [
-            Path.home() / "Grounded-SAM-2",
-            Path.home() / "grounded-sam-2", 
-            Path("/workspace") / "Grounded-SAM-2"
-        ]
-        
-        for path in grounding_paths:
-            if path.exists() and (path / "grounding_dino").exists():
-                sys.path.insert(0, str(path))
-                break
-                
         from grounding_dino.groundingdino.util.inference import predict
         from PIL import Image
         
         # Ensure image is uint8
         if image.dtype != np.uint8:
-            if image.max() <= 1.0:
-                image = (image * 255).astype(np.uint8)
-            else:
-                image = image.astype(np.uint8)
+            image = (image * 255 if image.max() <= 1.0 else image).astype(np.uint8)
         
-        # Convert numpy array to PIL Image
-        image_pil = Image.fromarray(image)
+        # Save original image for debugging
+        if self.save_debug_visualizations:
+            debug_dir = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(debug_dir / "original_image.jpg"), image)
+            
+            # Log vocabulary being searched
+            vocab_path = debug_dir / "vocabulary.txt"
+            with open(vocab_path, 'w') as f:
+                f.write(f"Searching for {len(self.vocabulary)} objects:\n")
+                for vocab_word in sorted(self.vocabulary):
+                    f.write(f"- {vocab_word}\n")
         
         # Apply transforms
-        image_transformed, _ = self.transform(image_pil, None)
+        image_transformed, _ = self.transform(Image.fromarray(image), None)
         
-        # Prepare text prompt
-        caption = ". ".join(self.vocabulary) + "."
+        all_boxes, all_labels, all_scores = [], [], []
+        filtered_detections = []  # Track what was filtered
         
-        # Run grounding
-        logger.debug(f"Running Grounding DINO with caption: {caption}, threshold: {self.confidence_threshold}")
+        # Process each vocabulary word
+        for vocab_word in self.vocabulary:
+            caption = f"a {vocab_word}"
+            
+            with torch.no_grad():
+                boxes, logits, phrases = predict(
+                    model=self.grounding_dino,
+                    image=image_transformed,
+                    caption=caption,
+                    box_threshold=self.confidence_threshold,
+                    text_threshold=config.get("semantic_segmentation", {}).get("grounded_sam2", {}).get("text_threshold", 0.25),
+                    device=self.device
+                )
+            
+            # Log all raw detections for this vocabulary word
+            if self.save_debug_visualizations and len(boxes) > 0:
+                logger.info(f"Frame {frame_idx}: {vocab_word} - {len(boxes)} raw detections")
+                for box, score, phrase in zip(boxes, logits, phrases):
+                    logger.info(f"  - '{phrase}' (score: {score:.3f})")
+            
+            # Keep ALL detections without vocabulary filtering
+            for box, score, phrase in zip(boxes, logits, phrases):
+                all_boxes.append(box)
+                all_labels.append(phrase.strip())  # Use the actual detected phrase
+                all_scores.append(score)
         
-        with torch.no_grad():
-            boxes, logits, phrases = predict(
-                model=self.grounding_dino,
-                image=image_transformed,
-                caption=caption,
-                box_threshold=self.confidence_threshold,
-                text_threshold=0.25,
-                device=self.device
-            )
+        # Save filtered detections log
+        if self.save_debug_visualizations and filtered_detections:
+            filtered_path = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}" / "filtered_detections.txt"
+            with open(filtered_path, 'w') as f:
+                f.write(f"Filtered {len(filtered_detections)} detections:\n\n")
+                for det in filtered_detections:
+                    f.write(f"Vocabulary: {det['vocab_word']}\n")
+                    f.write(f"Detected: '{det['detected_phrase']}' (score: {det['score']:.3f})\n")
+                    f.write(f"Reason: {det['reason']}\n\n")
         
-        logger.info(f"Detected {len(boxes)} objects: {', '.join([f'{p} ({s:.2f})' for p, s in zip(phrases, logits)])}")
+        if len(all_boxes) > 0:
+            boxes = torch.stack(all_boxes)
+            logits = torch.tensor(all_scores)
+            
+            # Convert to pixel coordinates for visualization before deduplication
+            h, w = image.shape[:2]
+            boxes_xyxy_before = torch.zeros_like(boxes)
+            boxes_xyxy_before[:, 0] = (boxes[:, 0] - boxes[:, 2] / 2) * w
+            boxes_xyxy_before[:, 1] = (boxes[:, 1] - boxes[:, 3] / 2) * h
+            boxes_xyxy_before[:, 2] = (boxes[:, 0] + boxes[:, 2] / 2) * w
+            boxes_xyxy_before[:, 3] = (boxes[:, 1] + boxes[:, 3] / 2) * h
+            
+            # Visualize before deduplication
+            if self.save_debug_visualizations:
+                self.visualize_detections(image, boxes_xyxy_before, all_labels, logits, 
+                                        frame_idx, "grounding")
+                logger.info(f"Frame {frame_idx}: {len(boxes)} detections before deduplication")
+            
+            # Deduplicate boxes with high IoU
+            num_before = len(boxes)
+            boxes, logits, all_labels = self._deduplicate_boxes(boxes, logits, all_labels)
+            num_after = len(boxes)
+            
+            if self.save_debug_visualizations and num_before != num_after:
+                logger.info(f"Frame {frame_idx}: Deduplication reduced {num_before} -> {num_after} detections")
+            
+            # Convert boxes from cxcywh to xyxy pixel coordinates
+            boxes_xyxy = torch.zeros_like(boxes)
+            boxes_xyxy[:, 0] = (boxes[:, 0] - boxes[:, 2] / 2) * w
+            boxes_xyxy[:, 1] = (boxes[:, 1] - boxes[:, 3] / 2) * h
+            boxes_xyxy[:, 2] = (boxes[:, 0] + boxes[:, 2] / 2) * w
+            boxes_xyxy[:, 3] = (boxes[:, 1] + boxes[:, 3] / 2) * h
+            
+            # Visualize after deduplication
+            if self.save_debug_visualizations:
+                self.visualize_detections(image, boxes_xyxy, all_labels, logits, 
+                                        frame_idx, "deduped")
+            
+            return boxes_xyxy, all_labels, logits
         
-        # Convert boxes from normalized to pixel coordinates
-        h, w = image.shape[:2]
+        # No detections found
+        if self.save_debug_visualizations:
+            no_detection_path = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}" / "no_detections.txt"
+            with open(no_detection_path, 'w') as f:
+                f.write(f"No detections found for frame {frame_idx}\n")
+                f.write(f"Vocabulary size: {len(self.vocabulary)}\n")
+                f.write(f"Confidence threshold: {self.confidence_threshold}\n")
+                if filtered_detections:
+                    f.write(f"\nFiltered {len(filtered_detections)} detections that didn't match vocabulary\n")
         
-        # Check box format - Grounding DINO returns cxcywh format, need to convert to xyxy
-        # logger.debug(f"Raw box format (first box): {boxes[0] if len(boxes) > 0 else 'None'}")
+        return torch.zeros((0, 4)), [], torch.zeros(0)
+    
+    def _deduplicate_boxes(self, boxes: torch.Tensor, scores: torch.Tensor, labels: List[str]) -> Tuple[torch.Tensor, torch.Tensor, List[str]]:
+        """Deduplicate overlapping boxes using IoU threshold."""
+        if len(boxes) == 0:
+            return boxes, scores, labels
+            
+        # Convert cxcywh to xyxy for IoU calculation
+        x1 = boxes[:, 0] - boxes[:, 2] / 2
+        y1 = boxes[:, 1] - boxes[:, 3] / 2
+        x2 = boxes[:, 0] + boxes[:, 2] / 2
+        y2 = boxes[:, 1] + boxes[:, 3] / 2
         
-        # Convert from cxcywh to xyxy format
-        boxes_xyxy = torch.zeros_like(boxes)
-        boxes_xyxy[:, 0] = boxes[:, 0] - boxes[:, 2] / 2  # x1 = cx - w/2
-        boxes_xyxy[:, 1] = boxes[:, 1] - boxes[:, 3] / 2  # y1 = cy - h/2
-        boxes_xyxy[:, 2] = boxes[:, 0] + boxes[:, 2] / 2  # x2 = cx + w/2
-        boxes_xyxy[:, 3] = boxes[:, 1] + boxes[:, 3] / 2  # y2 = cy + h/2
+        keep = []
+        order = scores.argsort(descending=True)
         
-        # Scale to pixel coordinates
-        boxes_xyxy = boxes_xyxy * torch.tensor([w, h, w, h], device=boxes.device)
+        while order.numel() > 0:
+            i = order[0]
+            keep.append(i)
+            
+            if order.numel() == 1:
+                break
+                
+            # Compute IoU with remaining boxes
+            xx1 = torch.max(x1[i], x1[order[1:]])
+            yy1 = torch.max(y1[i], y1[order[1:]])
+            xx2 = torch.min(x2[i], x2[order[1:]])
+            yy2 = torch.min(y2[i], y2[order[1:]])
+            
+            w = torch.clamp(xx2 - xx1, min=0)
+            h = torch.clamp(yy2 - yy1, min=0)
+            inter = w * h
+            
+            area_i = (x2[i] - x1[i]) * (y2[i] - y1[i])
+            area = (x2[order[1:]] - x1[order[1:]]) * (y2[order[1:]] - y1[order[1:]])
+            union = area_i + area - inter
+            
+            iou = inter / union
+            idx = (iou <= self.deduplication_iou_threshold).nonzero().squeeze(1)
+            order = order[idx + 1]
         
-        return boxes_xyxy, phrases, logits
+        keep = torch.tensor(keep, dtype=torch.long)
+        return boxes[keep], scores[keep], [labels[i] for i in keep]
     
     def segment_frame_with_boxes(self, image: np.ndarray, boxes: torch.Tensor, 
-                                 labels: List[str], frame_idx: int) -> Dict:
-        """Use SAM2 IMAGE MODE to segment objects given bounding boxes."""
+                                labels: List[str], frame_idx: int) -> Dict:
+        """Use SAM2 to segment objects given bounding boxes."""
         if self.sam2_predictor is None:
-            logger.warning("SAM2 predictor is None, using mock segmentation!")
-            return self._mock_segment_frame(image, boxes, labels, frame_idx)
+            raise RuntimeError("SAM2 model not loaded")
             
-        # Ensure image is uint8
+        # Prepare image
         if image.dtype != np.uint8:
-            if image.max() <= 1.0:
-                image = (image * 255).astype(np.uint8)
-            else:
-                image = image.astype(np.uint8)
-                
-        # SAM2 expects RGB image
-        if image.shape[2] == 3 and image.dtype == np.uint8:
-            # Assume BGR, convert to RGB
-            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        else:
-            image_rgb = image
-            
-        # Set the image in the predictor (required for image mode)
-        logger.debug(f"Setting image in SAM2 predictor")
-        self.sam2_predictor.set_image(image_rgb)
-        self.current_image_set = True
+            image = (image * 255 if image.max() <= 1.0 else image).astype(np.uint8)
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) if image.shape[2] == 3 else image
         
-        # Process all boxes at once
-        masks = []
-        track_ids = []
+        # Get image dimensions
+        h, w = image.shape[:2]
         
-        logger.debug(f"Processing {len(boxes)} detected boxes for segmentation")
+        # Set image in predictor
+        with torch.no_grad():
+            self.sam2_predictor.set_image(image_rgb)
         
-        # Convert all boxes to numpy array
+        masks, track_ids, valid_labels = [], [], []
+        failed_masks = []  # Track failed segmentations
+        
         if len(boxes) > 0:
-            # Boxes should already be in xyxy pixel coordinates
             input_boxes = boxes.cpu().numpy()
-            # logger.debug(f"Input boxes shape: {input_boxes.shape}")
-            # logger.debug(f"First box: {input_boxes[0] if len(input_boxes) > 0 else 'None'}")
             
-            # Predict masks for all boxes at once
-            logger.debug(f"Running SAM2 predict with {len(input_boxes)} boxes")
-            try:
-                # SAM2 image mode predict
-                predicted_masks, scores, logits = self.sam2_predictor.predict(
-                    point_coords=None,
-                    point_labels=None,
-                    box=input_boxes,
-                    multimask_output=False  # Single mask per box
-                )
-                
-                logger.debug(f"SAM2 output: masks shape={predicted_masks.shape}, scores shape={scores.shape}")
-                
-                # Process each mask
-                for box_idx, (mask, score, label) in enumerate(zip(predicted_masks, scores, labels)):
-                    # Score might be a scalar or array
-                    score_val = float(score[0] if hasattr(score, '__len__') else score)
-                    # Processing mask
+            # Log segmentation attempt
+            if self.save_debug_visualizations:
+                logger.info(f"Frame {frame_idx}: Attempting to segment {len(input_boxes)} objects")
+            
+            # Process each box
+            for box_idx, (box, label) in enumerate(zip(input_boxes, labels)):
+                try:
+                    # Predict mask with multiple proposals
+                    masks_proposals, scores, _ = self.sam2_predictor.predict(
+                        point_coords=None,
+                        point_labels=None,
+                        box=box.reshape(1, 4),
+                        multimask_output=True  # Get 3 mask proposals
+                    )
                     
-                    # mask is (C, H, W) with C=1, need to squeeze
-                    # logger.debug(f"Mask shape before squeeze: {mask.shape}")
-                    if mask.ndim == 3 and mask.shape[0] == 1:
-                        mask = mask[0]  # Remove channel dimension
-                    # logger.debug(f"Mask shape after squeeze: {mask.shape}")
+                    # Select the mask with highest IoU to the bounding box
+                    best_mask_idx = 0
+                    best_iou = 0
                     
-                    mask_pixels = np.sum(mask)
-                    mask_total = mask.shape[0] * mask.shape[1]
-                    # Mask pixels debug
-                    
-                    # Check mask bounds
-                    try:
-                        # Convert to binary mask if needed
-                        if mask.dtype != bool:
-                            mask_binary = mask > 0.5
-                        else:
-                            mask_binary = mask
-                        
-                        y_indices, x_indices = np.where(mask_binary)
-                        if len(y_indices) > 0:
-                            min_y, max_y = y_indices.min(), y_indices.max()
-                            min_x, max_x = x_indices.min(), x_indices.max()
-                            # logger.debug(f"Mask bounds: x=[{min_x}, {max_x}], y=[{min_y}, {max_y}], size={max_x-min_x+1}x{max_y-min_y+1}")
-                    except Exception as e:
-                        logger.debug(f"Error checking mask bounds: {e}")
-                    
-                    masks.append(mask)
-                    
-                    # Generate track ID
-                    self.current_tracks[self.next_track_id] = {
-                        'label': label,
-                        'first_frame': frame_idx,
-                        'box': input_boxes[box_idx],
-                        'score': score_val
-                    }
-                    track_ids.append(self.next_track_id)
-                    self.next_track_id += 1
-                    
-            except Exception as e:
-                logger.error(f"ERROR in SAM2 predict: {e}")
-                import traceback
-                traceback.print_exc()
-                # Fallback to box masks
-                for box_idx, (box, label) in enumerate(zip(input_boxes, labels)):
-                    h, w = image.shape[:2]
-                    mask = np.zeros((h, w), dtype=bool)
+                    # Convert box to mask for IoU calculation
+                    box_mask = np.zeros((h, w), dtype=bool)
                     x1, y1, x2, y2 = box.astype(int)
-                    x1, y1 = max(0, x1), max(0, y1)
-                    x2, y2 = min(w, x2), min(h, y2)
-                    mask[y1:y2, x1:x2] = True
+                    box_mask[y1:y2, x1:x2] = True
+                    box_area = (x2 - x1) * (y2 - y1)
+                    
+                    for i in range(len(masks_proposals)):
+                        mask_proposal = masks_proposals[i].squeeze()
+                        
+                        # Ensure mask is boolean numpy array
+                        if isinstance(mask_proposal, torch.Tensor):
+                            mask_proposal = mask_proposal.cpu().numpy()
+                        mask_proposal = mask_proposal.astype(bool)
+                        
+                        # Calculate IoU with bounding box
+                        intersection = np.sum(mask_proposal & box_mask)
+                        union = np.sum(mask_proposal | box_mask)
+                        iou = intersection / union if union > 0 else 0
+                        
+                        # Prefer masks that fit well within the box
+                        mask_area = np.sum(mask_proposal)
+                        containment = intersection / mask_area if mask_area > 0 else 0
+                        
+                        # Combined score: IoU + containment
+                        combined_score = iou + containment
+                        
+                        if combined_score > best_iou:
+                            best_iou = combined_score
+                            best_mask_idx = i
+                    
+                    mask = masks_proposals[best_mask_idx]
+                    score = scores[best_mask_idx]
+                    
+                    # Handle mask dimensions properly
+                    if mask.ndim == 4:  # (1, 1, H, W)
+                        mask = mask[0, 0]
+                    elif mask.ndim == 3:  # (1, H, W)
+                        mask = mask[0]
+                    elif mask.ndim == 2:  # (H, W)
+                        pass  # Already 2D
+                    else:
+                        logger.error(f"Unexpected mask shape: {mask.shape}")
+                        failed_masks.append({
+                            'label': label,
+                            'reason': f'Invalid mask shape: {mask.shape}'
+                        })
+                        continue
+                    
+                    # Validate mask - filter empty masks
+                    mask_pixels = np.sum(mask > 0)
+                    if mask_pixels == 0:
+                        failed_masks.append({
+                            'label': label,
+                            'reason': 'Empty mask (0 pixels)',
+                            'box': box.tolist()
+                        })
+                        if self.save_debug_visualizations:
+                            logger.warning(f"Frame {frame_idx}: Empty mask for {label}")
+                        continue
+                    
+                    # Check mask quality
+                    h, w = mask.shape
+                    mask_percentage = (mask_pixels / (h * w)) * 100
+                    
+                    if self.save_debug_visualizations and mask_percentage > 50:
+                        logger.warning(f"Frame {frame_idx}: Large mask for {label}: {mask_percentage:.1f}% of image")
+                    
                     masks.append(mask)
+                    valid_labels.append(label)
                     track_ids.append(self.next_track_id)
                     self.next_track_id += 1
-                
+                    
+                    if self.save_debug_visualizations:
+                        logger.info(f"Frame {frame_idx}: Successfully segmented {label} ({mask_pixels} pixels, {mask_percentage:.1f}%)")
+                    
+                except Exception as e:
+                    logger.error(f"Error segmenting {label}: {e}")
+                    failed_masks.append({
+                        'label': label,
+                        'reason': str(e),
+                        'box': box.tolist()
+                    })
+                    continue
+        
+        # Save failed segmentations log
+        if self.save_debug_visualizations and failed_masks:
+            failed_path = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}" / "failed_segmentations.txt"
+            with open(failed_path, 'w') as f:
+                f.write(f"Failed to segment {len(failed_masks)} objects:\n\n")
+                for fail in failed_masks:
+                    f.write(f"Label: {fail['label']}\n")
+                    f.write(f"Reason: {fail['reason']}\n")
+                    if 'box' in fail:
+                        f.write(f"Box: {fail['box']}\n")
+                    f.write("\n")
+        
+        # Visualize successful masks
+        if self.save_debug_visualizations and len(masks) > 0:
+            self.visualize_masks(image, masks, valid_labels, frame_idx)
+            
+            # Log summary
+            logger.info(f"Frame {frame_idx}: Segmentation complete - {len(masks)}/{len(boxes)} successful")
+        
         return {
             'masks': masks,
-            'labels': labels,
-            'track_ids': track_ids
+            'labels': valid_labels,
+            'track_ids': track_ids,
+            'refined_boxes': boxes.cpu().numpy() if len(boxes) > 0 else []
         }
     
     def process_frame(self, image: np.ndarray, frame_id: int, keyframe_idx: Optional[int] = None) -> Dict:
         """Process a single frame to generate semantic masks."""
         start_time = time.time()
-        h, w = image.shape[:2]
         
-        
-        # Ground objects in the frame
-        boxes, labels, confidences = self.ground_objects_in_frame(image)
+        # Ground objects
+        boxes, labels, confidences = self.ground_objects_in_frame(image, frame_id)
         
         if len(boxes) == 0:
             return {
@@ -547,14 +644,12 @@ class RealGroundedSAM2Processor:
             }
         
         # Segment with SAM2
-        segmentation_result = self.segment_frame_with_boxes(
-            image, boxes, labels, frame_id
-        )
+        segmentation_result = self.segment_frame_with_boxes(image, boxes, labels, frame_id)
         
         # Convert to RLE format
         results = {
             'frame_id': frame_id,
-            'keyframe_idx': keyframe_idx,  # Direct mapping to keyframe
+            'keyframe_idx': keyframe_idx,
             'masks_rle': {},
             'instance_ids': [],
             'track_ids': {},
@@ -566,12 +661,16 @@ class RealGroundedSAM2Processor:
         for idx, (mask, label, conf, track_id) in enumerate(zip(
             segmentation_result['masks'],
             segmentation_result['labels'],
-            confidences,
+            confidences[:len(segmentation_result['masks'])],
             segmentation_result['track_ids']
         )):
             instance_id = idx + 1
             
             # Encode mask to RLE
+            # Ensure mask is 2D before encoding
+            if mask.ndim != 2:
+                logger.error(f"Mask has wrong dimensions: {mask.shape}")
+                continue
             mask_tensor = torch.from_numpy(mask).to(dtype=torch.bool)
             rle_mask = encode_rle(mask_tensor)
             
@@ -582,6 +681,10 @@ class RealGroundedSAM2Processor:
             results['labels'][instance_id] = label
             results['confidences'][instance_id] = float(conf)
             
+            # Debug: Log what we're storing
+            if self.debug_mode:
+                logger.info(f"  Storing instance {instance_id}: label='{label}', conf={conf:.3f}, track_id={track_id}")
+        
         # Track performance
         self.frame_times.append(results['processing_time'])
         if len(self.frame_times) % 30 == 0:
@@ -590,50 +693,9 @@ class RealGroundedSAM2Processor:
             
         return results
     
-    def _mock_ground_objects(self, image: np.ndarray) -> Tuple[torch.Tensor, List[str], torch.Tensor]:
-        """Mock object grounding for fallback."""
-        h, w = image.shape[:2]
-        num_objects = min(2, len(self.vocabulary))
-        boxes = []
-        labels = []
-        confidences = []
-        
-        for i in range(num_objects):
-            x1 = int(w * 0.2 * (i + 1))
-            y1 = int(h * 0.2 * (i + 1))
-            x2 = min(x1 + int(w * 0.3), w)
-            y2 = min(y1 + int(h * 0.3), h)
-            
-            boxes.append([x1, y1, x2, y2])
-            labels.append(self.vocabulary[i % len(self.vocabulary)])
-            confidences.append(0.8 - i * 0.1)
-            
-        return torch.tensor(boxes, device=self.device), labels, torch.tensor(confidences, device=self.device)
-    
-    def _mock_segment_frame(self, image: np.ndarray, boxes: torch.Tensor, 
-                           labels: List[str], frame_idx: int) -> Dict:
-        """Mock segmentation for fallback."""
-        h, w = image.shape[:2]
-        masks = []
-        track_ids = []
-        
-        for box in boxes:
-            mask = np.zeros((h, w), dtype=bool)
-            x1, y1, x2, y2 = box.int().tolist()
-            mask[y1:y2, x1:x2] = True
-            masks.append(mask)
-            track_ids.append(self.next_track_id)
-            self.next_track_id += 1
-            
-        return {
-            'masks': masks,
-            'labels': labels,
-            'track_ids': track_ids
-        }
-    
     def run(self):
         """Main processing loop."""
-        logger.info(f"Starting Real Grounded-SAM2 semantic processor on {self.device}...")
+        logger.info(f"Starting Grounded-SAM2 processor on {self.device}...")
         self.initialize_models()
         
         while True:
@@ -643,28 +705,23 @@ class RealGroundedSAM2Processor:
                 if frame_data is None:
                     break
                 
-                image = frame_data['img']
-                frame_id = frame_data['frame_id']
-                keyframe_idx = frame_data.get('keyframe_idx')  # Direct keyframe mapping
-                
                 # Process frame
-                semantic_data = self.process_frame(image, frame_id, keyframe_idx)
+                semantic_data = self.process_frame(
+                    frame_data['img'], 
+                    frame_data['frame_id'], 
+                    frame_data.get('keyframe_idx')
+                )
                 
                 # Put results in output queue
                 self.result_queue.put(semantic_data)
-                
                 
             except Empty:
                 continue
             except Exception as e:
                 logger.error(f"Error in semantic processor: {e}")
-                import traceback
-                traceback.print_exc()
                 continue
         
         logger.info("Semantic processor terminated.")
-        if self.frame_times:
-            logger.info(f"Average processing time: {np.mean(self.frame_times)*1000:.1f}ms")
 
 
 def start_real_grounded_sam2_processor(frame_queue: mp.Queue, 

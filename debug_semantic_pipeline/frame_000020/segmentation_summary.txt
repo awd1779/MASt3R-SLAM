@@ -1,0 +1,14 @@
+Frame 20 - Segmentation Results
+Total masks: 11
+
+1. a chair: 26577 pixels (13.52% of image)
+2. a blinds: 47742 pixels (24.28% of image)
+3. a picture: 1468 pixels (0.75% of image)
+4. a floor: 12469 pixels (6.34% of image)
+5. a wall: 60310 pixels (30.68% of image)
+6. a ceiling: 14211 pixels (7.23% of image)
+7. a blanket: 13213 pixels (6.72% of image)
+8. a rug: 2189 pixels (1.11% of image)
+9. a indoor plant: 4158 pixels (2.11% of image)
+10. a sofa: 18447 pixels (9.38% of image)
+11. a door: 29808 pixels (15.16% of image)

@@ -1,0 +1,64 @@
+Frame 7 - deduped detections
+Total detections: 15
+Confidence threshold: 0.3
+
+1. a sofa (conf: 0.929)
+   Box: [0.2, 217.0, 243.1, 382.9]
+   Size: 242.8x166.0 (47.4%x43.2% of image)
+
+2. a picture (conf: 0.871)
+   Box: [109.0, 78.9, 237.2, 220.9]
+   Size: 128.2x142.0 (25.0%x37.0% of image)
+
+3. a window (conf: 0.792)
+   Box: [0.0, 84.5, 38.8, 211.1]
+   Size: 38.8x126.5 (7.6%x32.9% of image)
+
+4. a candle (conf: 0.581)
+   Box: [258.8, 250.5, 289.6, 286.2]
+   Size: 30.8x35.7 (6.0%x9.3% of image)
+
+5. a lamp (conf: 0.573)
+   Box: [230.2, 162.4, 297.5, 284.9]
+   Size: 67.3x122.6 (13.1%x31.9% of image)
+
+6. a wall (conf: 0.549)
+   Box: [34.7, 0.6, 511.8, 383.3]
+   Size: 477.1x382.7 (93.2%x99.7% of image)
+
+7. a ceiling (conf: 0.440)
+   Box: [-0.0, -0.0, 278.9, 99.0]
+   Size: 279.0x99.0 (54.5%x25.8% of image)
+
+8. a wall plug (conf: 0.431)
+   Box: [424.5, 124.2, 473.4, 150.8]
+   Size: 49.0x26.7 (9.6%x6.9% of image)
+
+9. a table (conf: 0.411)
+   Box: [188.7, 263.5, 301.5, 378.1]
+   Size: 112.7x114.7 (22.0%x29.9% of image)
+
+10. a plant stand (conf: 0.368)
+   Box: [188.3, 258.0, 304.4, 380.7]
+   Size: 116.1x122.7 (22.7%x31.9% of image)
+
+11. a floor (conf: 0.319)
+   Box: [0.2, 312.8, 452.4, 383.9]
+   Size: 452.2x71.1 (88.3%x18.5% of image)
+
+12. a plate (conf: 0.311)
+   Box: [189.0, 290.3, 273.8, 334.8]
+   Size: 84.8x44.5 (16.6%x11.6% of image)
+
+13. a wall plug (conf: 0.308)
+   Box: [417.8, 116.8, 481.3, 159.2]
+   Size: 63.5x42.4 (12.4%x11.0% of image)
+
+14. a stool (conf: 0.305)
+   Box: [188.7, 290.3, 274.4, 376.2]
+   Size: 85.8x85.9 (16.7%x22.4% of image)
+
+15. a rug (conf: 0.304)
+   Box: [181.6, 327.9, 414.1, 383.9]
+   Size: 232.5x56.0 (45.4%x14.6% of image)
+

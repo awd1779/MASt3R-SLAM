@@ -25,39 +25,34 @@ semantic_segmentation:
   enabled: true
   
   # Use real Grounded-SAM2 processor
-  use_mock: false
   
   frontend_type: "grounded_sam"
   
   # Vocabulary will be loaded automatically from info_semantic.json
   # This is a fallback vocabulary if auto-loading fails
-  initial_vocabulary: [
-    "wall", "floor", "ceiling", "table", "chair", 
-    "sofa", "bed", "door", "window", "cabinet"
-  ]
+  #initial_vocabulary: [
+  #  "wall", "floor", "ceiling", "table", "chair", 
+  #  "sofa", "bed", "door", "window", "cabinet"
+  #]
   
   # Grounded-SAM2 settings
   grounded_sam2:
     model_type: "hiera_b+"
     grounding_model: "grounding_dino_swin-b"
     device: "cuda:0"
-    confidence_threshold: 0.35
+    confidence_threshold: 0.30  # Lowered to detect more objects (was 0.45)
+    text_threshold: 0.25  # Lowered for better detection of small objects (was 0.35)
+    dtype: "float32"  # Options: "float32", "float16", "bfloat16" - float32 for maximum compatibility
+    
+    # Debug and evaluation settings
+    debug_mode: true  # Enable for Replica evaluation
+    save_debug_visualizations: true  # Save for evaluation analysis
+    deduplication_iou_threshold: 0.95  # Only remove nearly identical boxes (was 0.9)
+    mask_refinement_threshold: 0.7
 
 # Retrieval settings for indoor scenes
 retrieval:
   k: 5
   min_thresh: 0.8
 
-# Global optimization
-global_opt:
-  use_loop_closures: true
-  loop_confidence_threshold: 0.3
 
-# Semantic loop closure for indoor environments
-semantic_loop_closure:
-  enabled: true
-  min_semantic_overlap: 0.3
-  min_instance_overlap: 0.2
-  histogram_similarity: 0.5
-  weight_factor: 0.1
-  verbose_rejection: true
