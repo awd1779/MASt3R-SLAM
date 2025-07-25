@@ -1,0 +1,118 @@
+Filtered 29 detections:
+
+Vocabulary: bag
+Detected: 'a' (score: 0.286)
+Reason: Empty label (length=1, area=0.04)
+
+Vocabulary: bag
+Detected: 'a' (score: 0.259)
+Reason: Empty label (length=1, area=0.43)
+
+Vocabulary: bag
+Detected: 'a' (score: 0.251)
+Reason: Empty label (length=1, area=0.04)
+
+Vocabulary: bottle
+Detected: '' (score: 0.222)
+Reason: Empty label (length=0, area=0.43)
+
+Vocabulary: bottle
+Detected: '' (score: 0.208)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: bottle
+Detected: '' (score: 0.225)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: chair
+Detected: '' (score: 0.240)
+Reason: Empty label (length=0, area=0.05)
+
+Vocabulary: chair
+Detected: '' (score: 0.217)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.233)
+Reason: Empty label (length=0, area=0.42)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.214)
+Reason: Empty label (length=0, area=0.05)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.201)
+Reason: Empty label (length=0, area=0.37)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.204)
+Reason: Empty label (length=0, area=0.29)
+
+Vocabulary: headset
+Detected: '' (score: 0.204)
+Reason: Empty label (length=0, area=0.36)
+
+Vocabulary: laptop
+Detected: '' (score: 0.225)
+Reason: Empty label (length=0, area=0.42)
+
+Vocabulary: laptop
+Detected: 'a' (score: 0.261)
+Reason: Empty label (length=1, area=0.05)
+
+Vocabulary: laptop
+Detected: '' (score: 0.224)
+Reason: Empty label (length=0, area=0.04)
+
+Vocabulary: laptop
+Detected: '' (score: 0.203)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: laptop
+Detected: '' (score: 0.236)
+Reason: Empty label (length=0, area=0.30)
+
+Vocabulary: laptop
+Detected: 'a' (score: 0.267)
+Reason: Empty label (length=1, area=0.24)
+
+Vocabulary: monitor
+Detected: '' (score: 0.225)
+Reason: Empty label (length=0, area=0.05)
+
+Vocabulary: monitor
+Detected: '' (score: 0.211)
+Reason: Empty label (length=0, area=0.96)
+
+Vocabulary: monitor
+Detected: '' (score: 0.207)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: monitor
+Detected: '' (score: 0.202)
+Reason: Empty label (length=0, area=0.41)
+
+Vocabulary: mouse
+Detected: '' (score: 0.217)
+Reason: Empty label (length=0, area=0.42)
+
+Vocabulary: mouse
+Detected: '' (score: 0.230)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.222)
+Reason: Empty label (length=0, area=0.23)
+
+Vocabulary: mouse
+Detected: '' (score: 0.247)
+Reason: Empty label (length=0, area=0.27)
+
+Vocabulary: rubbish bin
+Detected: '' (score: 0.210)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: table
+Detected: '' (score: 0.217)
+Reason: Empty label (length=0, area=0.24)
+

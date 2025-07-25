@@ -1,0 +1,98 @@
+Filtered 24 detections:
+
+Vocabulary: bag
+Detected: '' (score: 0.200)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: bottle
+Detected: '' (score: 0.248)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: bottle
+Detected: '' (score: 0.224)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: bottle
+Detected: '' (score: 0.219)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.238)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: container
+Detected: '' (score: 0.210)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: container
+Detected: 'a' (score: 0.259)
+Reason: Empty label (length=1, area=0.07)
+
+Vocabulary: container
+Detected: '' (score: 0.226)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: container
+Detected: '' (score: 0.212)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: container
+Detected: '' (score: 0.229)
+Reason: Empty label (length=0, area=0.07)
+
+Vocabulary: container
+Detected: '' (score: 0.243)
+Reason: Empty label (length=0, area=0.09)
+
+Vocabulary: headset
+Detected: '' (score: 0.239)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: headset
+Detected: '' (score: 0.206)
+Reason: Empty label (length=0, area=0.13)
+
+Vocabulary: laptop
+Detected: '' (score: 0.206)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: laptop
+Detected: '' (score: 0.225)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: laptop
+Detected: '' (score: 0.241)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: monitor
+Detected: '' (score: 0.212)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: monitor
+Detected: '' (score: 0.212)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.228)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.219)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.205)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.202)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.202)
+Reason: Empty label (length=0, area=0.09)
+
+Vocabulary: rubbish bin
+Detected: '' (score: 0.220)
+Reason: Empty label (length=0, area=0.00)
+

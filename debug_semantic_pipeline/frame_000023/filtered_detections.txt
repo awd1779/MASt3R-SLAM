@@ -1,0 +1,90 @@
+Filtered 22 detections:
+
+Vocabulary: bag
+Detected: 'a' (score: 0.293)
+Reason: Empty label (length=1, area=0.00)
+
+Vocabulary: bottle
+Detected: '' (score: 0.233)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: chair
+Detected: '' (score: 0.234)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: chair
+Detected: '' (score: 0.242)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: chair
+Detected: '' (score: 0.243)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: chair
+Detected: '' (score: 0.240)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.247)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: container
+Detected: '' (score: 0.230)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: container
+Detected: '' (score: 0.226)
+Reason: Empty label (length=0, area=0.97)
+
+Vocabulary: floor
+Detected: '' (score: 0.203)
+Reason: Empty label (length=0, area=0.11)
+
+Vocabulary: floor
+Detected: '' (score: 0.210)
+Reason: Empty label (length=0, area=0.44)
+
+Vocabulary: headset
+Detected: '' (score: 0.242)
+Reason: Empty label (length=0, area=0.05)
+
+Vocabulary: headset
+Detected: '' (score: 0.213)
+Reason: Empty label (length=0, area=0.96)
+
+Vocabulary: laptop
+Detected: '' (score: 0.221)
+Reason: Empty label (length=0, area=0.05)
+
+Vocabulary: laptop
+Detected: '' (score: 0.219)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: laptop
+Detected: '' (score: 0.200)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: laptop
+Detected: '' (score: 0.209)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: monitor
+Detected: '' (score: 0.213)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: monitor
+Detected: '' (score: 0.213)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.217)
+Reason: Empty label (length=0, area=0.05)
+
+Vocabulary: mouse
+Detected: '' (score: 0.213)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: rubbish bin
+Detected: '' (score: 0.207)
+Reason: Empty label (length=0, area=0.00)
+

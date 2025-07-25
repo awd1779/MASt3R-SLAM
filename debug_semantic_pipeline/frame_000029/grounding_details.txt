@@ -1,0 +1,100 @@
+Frame 29 - grounding detections
+Total detections: 24
+Confidence threshold: 0.2
+
+1. a bag (conf: 0.326)
+   Box: [355.5, 153.0, 384.4, 177.7]
+   Size: 28.9x24.7 (5.6%x9.1% of image)
+
+2. a bag (conf: 0.293)
+   Box: [82.9, 179.8, 129.0, 254.3]
+   Size: 46.1x74.5 (9.0%x27.4% of image)
+
+3. a bag (conf: 0.278)
+   Box: [330.7, 69.1, 501.6, 174.5]
+   Size: 170.9x105.4 (33.4%x38.8% of image)
+
+4. a bottle (conf: 0.425)
+   Box: [326.1, 139.1, 338.2, 168.5]
+   Size: 12.1x29.4 (2.4%x10.8% of image)
+
+5. a bottle (conf: 0.295)
+   Box: [328.3, 140.7, 336.1, 166.6]
+   Size: 7.8x25.9 (1.5%x9.5% of image)
+
+6. bottle (conf: 0.254)
+   Box: [322.4, 136.2, 342.9, 173.2]
+   Size: 20.5x37.0 (4.0%x13.6% of image)
+
+7. a chair (conf: 0.311)
+   Box: [166.7, 193.7, 223.6, 222.5]
+   Size: 56.8x28.7 (11.1%x10.6% of image)
+
+8. a chair (conf: 0.312)
+   Box: [308.5, 211.6, 380.5, 270.1]
+   Size: 71.9x58.5 (14.1%x21.5% of image)
+
+9. a chair (conf: 0.288)
+   Box: [83.3, 180.1, 129.0, 254.0]
+   Size: 45.8x73.8 (8.9%x27.1% of image)
+
+10. a chair (conf: 0.260)
+   Box: [170.0, 146.8, 193.3, 182.8]
+   Size: 23.3x36.0 (4.6%x13.2% of image)
+
+11. a chair (conf: 0.257)
+   Box: [144.7, 147.1, 169.7, 186.9]
+   Size: 25.0x39.8 (4.9%x14.6% of image)
+
+12. a coffee cup (conf: 0.311)
+   Box: [330.0, 68.5, 502.1, 176.4]
+   Size: 172.1x107.9 (33.6%x39.7% of image)
+
+13. a container (conf: 0.303)
+   Box: [441.6, 162.3, 465.2, 195.3]
+   Size: 23.6x33.0 (4.6%x12.1% of image)
+
+14. a container (conf: 0.323)
+   Box: [284.2, 105.2, 322.2, 200.3]
+   Size: 38.1x95.1 (7.4%x35.0% of image)
+
+15. a container (conf: 0.262)
+   Box: [331.2, 68.8, 502.0, 175.0]
+   Size: 170.9x106.2 (33.4%x39.0% of image)
+
+16. a floor (conf: 0.408)
+   Box: [1.3, 154.0, 448.8, 270.5]
+   Size: 447.5x116.4 (87.4%x42.8% of image)
+
+17. a headset (conf: 0.429)
+   Box: [329.0, 68.3, 502.3, 175.3]
+   Size: 173.3x107.0 (33.8%x39.3% of image)
+
+18. a laptop (conf: 0.271)
+   Box: [166.7, 193.5, 223.7, 222.5]
+   Size: 57.0x29.0 (11.1%x10.7% of image)
+
+19. a laptop (conf: 0.346)
+   Box: [81.5, 205.5, 335.9, 270.4]
+   Size: 254.4x64.9 (49.7%x23.9% of image)
+
+20. a laptop (conf: 0.261)
+   Box: [331.0, 68.9, 501.9, 174.2]
+   Size: 170.9x105.3 (33.4%x38.7% of image)
+
+21. a monitor (conf: 0.484)
+   Box: [330.3, 68.7, 502.2, 174.5]
+   Size: 171.9x105.7 (33.6%x38.9% of image)
+
+22. a mouse (conf: 0.274)
+   Box: [404.7, 174.3, 434.7, 189.2]
+   Size: 29.9x14.9 (5.8%x5.5% of image)
+
+23. a rubbish bin (conf: 0.556)
+   Box: [82.2, 178.9, 129.7, 254.6]
+   Size: 47.5x75.7 (9.3%x27.8% of image)
+
+24. a table (conf: 0.698)
+   Box: [81.6, 206.1, 336.1, 270.3]
+   Size: 254.5x64.2 (49.7%x23.6% of image)
+

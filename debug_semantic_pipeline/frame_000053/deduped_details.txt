@@ -1,0 +1,88 @@
+Frame 53 - deduped detections
+Total detections: 21
+Confidence threshold: 0.2
+
+1. a table (conf: 0.883)
+   Box: [181.4, 186.8, 304.1, 261.0]
+   Size: 122.7x74.2 (24.0%x27.3% of image)
+
+2. a monitor (conf: 0.558)
+   Box: [36.1, 103.3, 85.0, 139.2]
+   Size: 48.9x35.9 (9.6%x13.2% of image)
+
+3. a rubbish bin (conf: 0.511)
+   Box: [266.4, 199.2, 295.3, 222.9]
+   Size: 28.9x23.7 (5.6%x8.7% of image)
+
+4. a floor (conf: 0.465)
+   Box: [56.4, 172.4, 510.2, 270.6]
+   Size: 453.8x98.2 (88.6%x36.1% of image)
+
+5. a bottle (conf: 0.441)
+   Box: [241.8, 176.7, 254.1, 201.5]
+   Size: 12.3x24.8 (2.4%x9.1% of image)
+
+6. a headset (conf: 0.354)
+   Box: [239.9, 175.0, 255.5, 201.6]
+   Size: 15.6x26.6 (3.1%x9.8% of image)
+
+7. a chair (conf: 0.333)
+   Box: [103.8, 151.5, 167.3, 212.6]
+   Size: 63.4x61.1 (12.4%x22.5% of image)
+
+8. a bag (conf: 0.329)
+   Box: [240.8, 220.9, 277.4, 249.0]
+   Size: 36.6x28.2 (7.1%x10.4% of image)
+
+9. a chair (conf: 0.315)
+   Box: [417.4, 178.4, 511.5, 269.2]
+   Size: 94.2x90.8 (18.4%x33.4% of image)
+
+10. a headset (conf: 0.299)
+   Box: [180.0, 174.0, 306.6, 262.6]
+   Size: 126.6x88.6 (24.7%x32.6% of image)
+
+11. a coffee cup (conf: 0.293)
+   Box: [263.0, 121.0, 271.0, 132.9]
+   Size: 8.0x11.9 (1.6%x4.4% of image)
+
+12. a coffee cup (conf: 0.292)
+   Box: [254.8, 118.4, 263.0, 132.6]
+   Size: 8.3x14.1 (1.6%x5.2% of image)
+
+13. a mouse (conf: 0.290)
+   Box: [243.7, 209.8, 253.0, 217.5]
+   Size: 9.2x7.7 (1.8%x2.8% of image)
+
+14. a chair (conf: 0.288)
+   Box: [0.3, 190.6, 166.9, 270.4]
+   Size: 166.6x79.8 (32.5%x29.4% of image)
+
+15. a laptop (conf: 0.279)
+   Box: [204.8, 207.7, 238.2, 228.8]
+   Size: 33.4x21.1 (6.5%x7.8% of image)
+
+16. a mouse (conf: 0.272)
+   Box: [180.8, 180.4, 304.4, 262.0]
+   Size: 123.6x81.6 (24.1%x30.0% of image)
+
+17. bottle (conf: 0.265)
+   Box: [255.3, 118.6, 262.6, 132.6]
+   Size: 7.3x14.0 (1.4%x5.1% of image)
+
+18. a laptop (conf: 0.264)
+   Box: [184.0, 196.2, 215.3, 211.8]
+   Size: 31.2x15.6 (6.1%x5.7% of image)
+
+19. chair (conf: 0.260)
+   Box: [176.6, 145.6, 224.5, 190.7]
+   Size: 47.9x45.1 (9.4%x16.6% of image)
+
+20. bottle (conf: 0.257)
+   Box: [326.6, 113.9, 338.3, 134.5]
+   Size: 11.7x20.6 (2.3%x7.6% of image)
+
+21. mouse (conf: 0.250)
+   Box: [241.8, 207.6, 254.8, 219.8]
+   Size: 13.0x12.2 (2.5%x4.5% of image)
+

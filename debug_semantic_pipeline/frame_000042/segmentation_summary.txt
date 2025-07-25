@@ -1,0 +1,16 @@
+Frame 42 - Segmentation Results
+Total masks: 13
+
+1. a table: 6834 pixels (4.91% of image)
+2. a floor: 18449 pixels (13.25% of image)
+3. a bag: 450 pixels (0.32% of image)
+4. a chair: 5157 pixels (3.70% of image)
+5. a coffee cup: 451 pixels (0.32% of image)
+6. a container: 444 pixels (0.32% of image)
+7. a rubbish bin: 478 pixels (0.34% of image)
+8. a monitor: 8884 pixels (6.38% of image)
+9. a chair: 735 pixels (0.53% of image)
+10. a laptop: 214 pixels (0.15% of image)
+11. a headset: 17787 pixels (12.77% of image)
+12. a chair: 3941 pixels (2.83% of image)
+13. a headset: 638 pixels (0.46% of image)

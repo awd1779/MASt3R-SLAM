@@ -1,29 +1,13 @@
-Searching for 28 objects:
-- basket
-- blanket
-- blinds
-- book
-- cabinet
-- candle
-- ceiling
+Searching for 12 objects:
+- bag
+- bottle
 - chair
-- cushion
-- door
+- coffee cup
+- container
 - floor
-- indoor plant
-- lamp
-- picture
-- pillar
-- plant stand
-- plate
-- pot
-- rug
-- sofa
-- stool
-- switch
+- headset
+- laptop
+- monitor
+- mouse
+- rubbish bin
 - table
-- vase
-- vent
-- wall
-- wall plug
-- window

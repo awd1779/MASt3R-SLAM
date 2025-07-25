@@ -1,0 +1,54 @@
+Filtered 13 detections:
+
+Vocabulary: bag
+Detected: '' (score: 0.240)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: bag
+Detected: '' (score: 0.239)
+Reason: Empty label (length=0, area=0.10)
+
+Vocabulary: bottle
+Detected: '' (score: 0.246)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: bottle
+Detected: '' (score: 0.225)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: chair
+Detected: '' (score: 0.236)
+Reason: Empty label (length=0, area=0.10)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.217)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: floor
+Detected: '' (score: 0.245)
+Reason: Empty label (length=0, area=0.26)
+
+Vocabulary: headset
+Detected: '' (score: 0.238)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: laptop
+Detected: '' (score: 0.204)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: monitor
+Detected: '' (score: 0.221)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: mouse
+Detected: '' (score: 0.203)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.202)
+Reason: Empty label (length=0, area=0.04)
+
+Vocabulary: rubbish bin
+Detected: '' (score: 0.227)
+Reason: Empty label (length=0, area=0.07)
+

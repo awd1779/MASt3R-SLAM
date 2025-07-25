@@ -1,0 +1,94 @@
+Filtered 23 detections:
+
+Vocabulary: bag
+Detected: 'a' (score: 0.258)
+Reason: Empty label (length=1, area=0.01)
+
+Vocabulary: bag
+Detected: '' (score: 0.206)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: bag
+Detected: '' (score: 0.218)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: bag
+Detected: '' (score: 0.224)
+Reason: Empty label (length=0, area=0.19)
+
+Vocabulary: bottle
+Detected: '' (score: 0.214)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: bottle
+Detected: '' (score: 0.200)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: coffee cup
+Detected: 'a' (score: 0.265)
+Reason: Empty label (length=1, area=0.01)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.213)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.206)
+Reason: Empty label (length=0, area=0.18)
+
+Vocabulary: container
+Detected: '' (score: 0.228)
+Reason: Empty label (length=0, area=0.97)
+
+Vocabulary: headset
+Detected: '' (score: 0.224)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: headset
+Detected: '' (score: 0.215)
+Reason: Empty label (length=0, area=0.15)
+
+Vocabulary: headset
+Detected: '' (score: 0.228)
+Reason: Empty label (length=0, area=0.19)
+
+Vocabulary: laptop
+Detected: 'a' (score: 0.255)
+Reason: Empty label (length=1, area=0.10)
+
+Vocabulary: laptop
+Detected: '' (score: 0.233)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: monitor
+Detected: '' (score: 0.212)
+Reason: Empty label (length=0, area=0.23)
+
+Vocabulary: monitor
+Detected: '' (score: 0.205)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: monitor
+Detected: '' (score: 0.213)
+Reason: Empty label (length=0, area=0.10)
+
+Vocabulary: mouse
+Detected: '' (score: 0.242)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: mouse
+Detected: '' (score: 0.211)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.214)
+Reason: Empty label (length=0, area=0.10)
+
+Vocabulary: rubbish bin
+Detected: '' (score: 0.229)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: rubbish bin
+Detected: '' (score: 0.203)
+Reason: Empty label (length=0, area=0.00)
+

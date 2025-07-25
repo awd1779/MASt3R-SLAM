@@ -34,18 +34,17 @@ def save_semantic_keyframes(savedir: Path,
     # Only create side-by-side visualizations
     # No subdirectories needed - save directly to savedir
     
-    # Get label colors from track manager
+    # Create label colors using a colormap
     label_colors = {}
-    if hasattr(semantic_backend, 'track_manager'):
-        tracks = semantic_backend.track_manager.get_all_tracks()
-        cmap = cm.get_cmap('tab20')
-        
-        for track_id, track_info in tracks.items():
-            if track_id == 0:  # Background
-                label_colors[track_id] = (128, 128, 128)  # Gray
-            else:
-                color = cmap((track_id - 1) % 20)[:3]
-                label_colors[track_id] = tuple(int(c * 255) for c in color)
+    cmap = cm.get_cmap('tab20')
+    
+    # Generate colors for up to 100 unique labels
+    for i in range(100):
+        if i == 0:  # Background
+            label_colors[i] = (128, 128, 128)  # Gray
+        else:
+            color = cmap((i - 1) % 20)[:3]
+            label_colors[i] = tuple(int(c * 255) for c in color)
     
     # Process each keyframe
     for i in range(len(keyframes)):
@@ -91,20 +90,19 @@ def save_semantic_keyframes(savedir: Path,
                 
                 instance_masks[instance_id] = mask
                 
-                # Get global track ID
-                track_id = semantic_data.get('track_ids', {}).get(instance_id, instance_id)
-                semantic_mask[mask] = track_id
+                # Use instance ID directly (no tracking)
+                semantic_mask[mask] = instance_id
         
         # Create side-by-side visualization only
         # Create overlay with semi-transparent segmentation
         overlay = img_bgr.copy()
         
         # Apply colors for each semantic label
-        for track_id in np.unique(semantic_mask):
-            if track_id == 0:
+        for instance_id in np.unique(semantic_mask):
+            if instance_id == 0:
                 continue
-            mask = semantic_mask == track_id
-            color = label_colors.get(track_id, (255, 255, 255))
+            mask = semantic_mask == instance_id
+            color = label_colors.get(instance_id, (255, 255, 255))
             # Semi-transparent overlay
             overlay[mask] = (0.6 * np.array(color[::-1]) + 0.4 * overlay[mask]).astype(np.uint8)
         
@@ -122,14 +120,14 @@ def save_semantic_keyframes(savedir: Path,
         
         # Get unique labels for this frame
         frame_labels = {}
-        for instance_id, track_id in semantic_data.get('track_ids', {}).items():
+        for instance_id in semantic_data.get('instance_ids', []):
             label = semantic_data.get('labels', {}).get(instance_id, 'unknown')
-            if track_id not in frame_labels and track_id != 0:
-                frame_labels[track_id] = label
+            if instance_id not in frame_labels and instance_id != 0:
+                frame_labels[instance_id] = label
         
         # Draw legend
-        for track_id, label in sorted(frame_labels.items(), key=lambda x: x[1]):
-            color = label_colors.get(track_id, (255, 255, 255))
+        for instance_id, label in sorted(frame_labels.items(), key=lambda x: x[1]):
+            color = label_colors.get(instance_id, (255, 255, 255))
             # Draw color box
             cv2.rectangle(combined, (x_offset, y_offset - 10), (x_offset + 20, y_offset + 5), 
                          color[::-1], -1)

@@ -1,0 +1,61 @@
+# Improved 3D tracking with label filtering to fix empty label issues
+
+inherit: "config/replica_semantic_auto.yaml"
+
+# Semantic segmentation - filter out picture and empty labels
+semantic_segmentation:
+  excluded_objects: ["picture"]  # Filter out picture to avoid large masks
+  
+  # Grounded-SAM2 settings - more permissive for better detection
+  grounded_sam2:
+    confidence_threshold: 0.20  # Reduced from 0.30 to detect more objects
+    text_threshold: 0.20  # Reduced from 0.25 for better detection
+    # Label filtering parameters to remove empty detections
+    filter_empty_labels: true  # Enable filtering of empty labels
+    min_phrase_length: 2       # Require at least 2 characters (filters "" and "a")
+    empty_label_max_size: 0.4  # Only filter large empty detections (>40% of image)
+
+# Object tracking configuration - Improved parameters
+object_tracking:
+  enabled: true
+  use_3d_tracking: true
+  use_global_tracking: true  # Enable sliding window global matching
+  
+  # Sliding window parameters - increased for better matching
+  sliding_window_size: 8  # Increased from 5 for better temporal context
+  global_search_tracks: 50  # Increased from 20 to search more candidates
+  
+  # 3D Tracking parameters - more permissive for better matching
+  geometric_iou_threshold: 0.15  # Reduced from 0.2 for easier matching
+  centroid_distance_threshold: 1.0  # Increased from 0.8m for larger objects
+  max_lost_frames: 50  # Increased from 30 for better track persistence
+  min_observations: 1
+  
+  # Matching weights - adjusted for better stability
+  weight_iou: 0.4  # Reduced from 0.5
+  weight_centroid: 0.4  # Increased from 0.3
+  weight_size: 0.2  # Keep same
+  
+  # 3D Bounding box extraction - more permissive
+  min_points_ratio: 0.0001  # Reduced from 0.0005 to include sparse objects
+  outlier_std_factor: 3.5  # Increased from 3.0 to be more inclusive
+  
+  # Depth range - expanded for better coverage
+  min_depth: 0.05  # Reduced from 0.1m
+  max_depth: 100.0  # Increased from 50m
+  
+  # 2D fallback parameters
+  iou_threshold_2d: 0.20  # Reduced from 0.25
+  max_center_distance: 150  # Increased from 120
+  max_area_change_ratio: 4.0  # Increased from 3.5
+  
+  # Track management
+  max_tracks: 2000  # Increased from 1000
+  
+  # Debug and logging
+  save_tracking_decisions: true
+  save_tracking_visualizations: true
+  visualization_interval: 10
+  log_tracking_stats: true
+  stats_interval: 30
+  debug_mode: false  # Set to false for better performance

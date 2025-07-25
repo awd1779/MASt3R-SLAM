@@ -1,0 +1,80 @@
+Frame 4 - deduped detections
+Total detections: 19
+Confidence threshold: 0.2
+
+1. a bottle (conf: 0.670)
+   Box: [173.6, 178.0, 190.2, 228.7]
+   Size: 16.5x50.7 (3.2%x18.6% of image)
+
+2. a table (conf: 0.654)
+   Box: [62.5, 173.9, 339.9, 270.5]
+   Size: 277.4x96.6 (54.2%x35.5% of image)
+
+3. a laptop (conf: 0.557)
+   Box: [243.0, 169.8, 299.2, 220.3]
+   Size: 56.2x50.5 (11.0%x18.6% of image)
+
+4. a bag (conf: 0.556)
+   Box: [130.8, 234.6, 181.2, 271.1]
+   Size: 50.4x36.4 (9.8%x13.4% of image)
+
+5. a chair (conf: 0.484)
+   Box: [309.8, 192.5, 347.1, 269.9]
+   Size: 37.3x77.4 (7.3%x28.5% of image)
+
+6. a container (conf: 0.346)
+   Box: [178.6, 222.2, 205.1, 247.7]
+   Size: 26.5x25.6 (5.2%x9.4% of image)
+
+7. a headset (conf: 0.344)
+   Box: [284.4, 170.7, 304.5, 190.4]
+   Size: 20.1x19.7 (3.9%x7.3% of image)
+
+8. a floor (conf: 0.337)
+   Box: [19.5, 251.2, 85.5, 271.7]
+   Size: 66.1x20.5 (12.9%x7.5% of image)
+
+9. a monitor (conf: 0.333)
+   Box: [243.1, 169.5, 274.4, 208.6]
+   Size: 31.3x39.1 (6.1%x14.4% of image)
+
+10. a coffee cup (conf: 0.315)
+   Box: [178.1, 221.8, 205.5, 247.9]
+   Size: 27.4x26.2 (5.3%x9.6% of image)
+
+11. a monitor (conf: 0.309)
+   Box: [222.4, 135.6, 241.6, 152.6]
+   Size: 19.2x17.0 (3.8%x6.2% of image)
+
+12. a monitor (conf: 0.306)
+   Box: [214.0, 134.7, 243.1, 163.6]
+   Size: 29.1x29.0 (5.7%x10.6% of image)
+
+13. a laptop (conf: 0.303)
+   Box: [213.4, 135.3, 242.2, 163.8]
+   Size: 28.7x28.5 (5.6%x10.5% of image)
+
+14. a chair (conf: 0.293)
+   Box: [312.0, 208.8, 346.2, 269.7]
+   Size: 34.2x60.9 (6.7%x22.4% of image)
+
+15. a monitor (conf: 0.282)
+   Box: [291.7, 152.9, 321.5, 178.6]
+   Size: 29.8x25.7 (5.8%x9.5% of image)
+
+16. a rubbish bin (conf: 0.272)
+   Box: [493.5, 162.9, 511.4, 202.3]
+   Size: 17.9x39.4 (3.5%x14.5% of image)
+
+17. a floor (conf: 0.272)
+   Box: [19.4, 163.5, 510.2, 270.7]
+   Size: 490.8x107.3 (95.9%x39.4% of image)
+
+18. a coffee (conf: 0.271)
+   Box: [285.4, 171.2, 301.2, 188.4]
+   Size: 15.8x17.2 (3.1%x6.3% of image)
+
+19. a mouse (conf: 0.263)
+   Box: [239.1, 212.8, 248.4, 220.3]
+   Size: 9.3x7.5 (1.8%x2.8% of image)
+

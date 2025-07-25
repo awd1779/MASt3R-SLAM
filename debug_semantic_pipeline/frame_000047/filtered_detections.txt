@@ -1,0 +1,66 @@
+Filtered 16 detections:
+
+Vocabulary: bottle
+Detected: '' (score: 0.204)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: bottle
+Detected: '' (score: 0.200)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: bottle
+Detected: '' (score: 0.212)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: bottle
+Detected: '' (score: 0.219)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.240)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.201)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.206)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.249)
+Reason: Empty label (length=0, area=0.04)
+
+Vocabulary: container
+Detected: '' (score: 0.247)
+Reason: Empty label (length=0, area=0.07)
+
+Vocabulary: floor
+Detected: '' (score: 0.220)
+Reason: Empty label (length=0, area=0.18)
+
+Vocabulary: headset
+Detected: '' (score: 0.217)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: headset
+Detected: '' (score: 0.205)
+Reason: Empty label (length=0, area=0.17)
+
+Vocabulary: monitor
+Detected: '' (score: 0.208)
+Reason: Empty label (length=0, area=0.17)
+
+Vocabulary: monitor
+Detected: '' (score: 0.208)
+Reason: Empty label (length=0, area=0.12)
+
+Vocabulary: mouse
+Detected: '' (score: 0.203)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.225)
+Reason: Empty label (length=0, area=0.19)
+

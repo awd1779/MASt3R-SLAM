@@ -38,7 +38,11 @@ class RealGroundedSAM2Processor:
                  debug_mode: bool = False,
                  save_debug_visualizations: bool = False,
                  deduplication_iou_threshold: float = 0.9,
-                 mask_refinement_threshold: float = 0.7):
+                 mask_refinement_threshold: float = 0.7,
+                 filter_empty_labels: bool = True,
+                 min_phrase_length: int = 2,
+                 empty_label_max_size: float = 0.4,
+                 object_tracker = None):
         self.frame_queue = frame_queue
         self.result_queue = result_queue
         self.vocabulary = vocabulary
@@ -48,6 +52,9 @@ class RealGroundedSAM2Processor:
         self.save_debug_visualizations = save_debug_visualizations
         self.deduplication_iou_threshold = deduplication_iou_threshold
         self.mask_refinement_threshold = mask_refinement_threshold
+        self.filter_empty_labels = filter_empty_labels
+        self.min_phrase_length = min_phrase_length
+        self.empty_label_max_size = empty_label_max_size
         
         # Convert dtype string to torch dtype
         self.dtype = {'float32': torch.float32, 'float16': torch.float16, 'bfloat16': torch.bfloat16}.get(dtype, torch.bfloat16)
@@ -66,12 +73,21 @@ class RealGroundedSAM2Processor:
         self.grounding_dino = None
         self.transform = None
         
-        # Track management
-        self.next_track_id = 1
+        # Frame processing times
         self.frame_times = []
         
         # Debug counters
         self.debug_frame_counter = 0
+        
+        # Object tracker (optional)
+        self.object_tracker = object_tracker
+        if self.object_tracker is not None:
+            logger.info(f"GroundedSAM2Processor initialized with object tracker: {type(object_tracker).__name__}")
+        else:
+            logger.info("GroundedSAM2Processor initialized without object tracker")
+        
+        # Keyframe access callback (will be set by processor)
+        self.keyframe_access_callback = None
         
     def visualize_detections(self, image: np.ndarray, boxes: torch.Tensor, labels: List[str], 
                              scores: torch.Tensor, frame_idx: int, stage: str = "grounding"):
@@ -341,6 +357,11 @@ class RealGroundedSAM2Processor:
         all_boxes, all_labels, all_scores = [], [], []
         filtered_detections = []  # Track what was filtered
         
+        # Label filtering parameters
+        min_phrase_length = getattr(self, 'min_phrase_length', 2)
+        filter_empty_labels = getattr(self, 'filter_empty_labels', True)
+        empty_label_max_size = getattr(self, 'empty_label_max_size', 0.4)
+        
         # Process each vocabulary word
         for vocab_word in self.vocabulary:
             caption = f"a {vocab_word}"
@@ -361,10 +382,25 @@ class RealGroundedSAM2Processor:
                 for box, score, phrase in zip(boxes, logits, phrases):
                     logger.info(f"  - '{phrase}' (score: {score:.3f})")
             
-            # Keep ALL detections without vocabulary filtering
+            # Filter and keep valid detections
             for box, score, phrase in zip(boxes, logits, phrases):
+                phrase_clean = phrase.strip()
+                
+                # Filter empty or invalid labels
+                if filter_empty_labels and len(phrase_clean) < min_phrase_length:
+                    # Always filter empty labels
+                    box_area = box[2] * box[3]  # width * height in normalized coords
+                    filtered_detections.append({
+                        'vocab_word': vocab_word,
+                        'detected_phrase': phrase,
+                        'score': float(score),
+                        'reason': f'Empty label (length={len(phrase_clean)}, area={box_area:.2f})',
+                        'box': box.tolist()
+                    })
+                    continue
+                
                 all_boxes.append(box)
-                all_labels.append(phrase.strip())  # Use the actual detected phrase
+                all_labels.append(phrase_clean)
                 all_scores.append(score)
         
         # Save filtered detections log
@@ -489,7 +525,7 @@ class RealGroundedSAM2Processor:
         with torch.no_grad():
             self.sam2_predictor.set_image(image_rgb)
         
-        masks, track_ids, valid_labels = [], [], []
+        masks, valid_labels = [], []
         failed_masks = []  # Track failed segmentations
         
         if len(boxes) > 0:
@@ -583,8 +619,6 @@ class RealGroundedSAM2Processor:
                     
                     masks.append(mask)
                     valid_labels.append(label)
-                    track_ids.append(self.next_track_id)
-                    self.next_track_id += 1
                     
                     if self.save_debug_visualizations:
                         logger.info(f"Frame {frame_idx}: Successfully segmented {label} ({mask_pixels} pixels, {mask_percentage:.1f}%)")
@@ -620,7 +654,6 @@ class RealGroundedSAM2Processor:
         return {
             'masks': masks,
             'labels': valid_labels,
-            'track_ids': track_ids,
             'refined_boxes': boxes.cpu().numpy() if len(boxes) > 0 else []
         }
     
@@ -637,7 +670,6 @@ class RealGroundedSAM2Processor:
                 'keyframe_idx': keyframe_idx,
                 'masks_rle': {},
                 'instance_ids': [],
-                'track_ids': {},
                 'labels': {},
                 'confidences': {},
                 'processing_time': time.time() - start_time
@@ -652,17 +684,15 @@ class RealGroundedSAM2Processor:
             'keyframe_idx': keyframe_idx,
             'masks_rle': {},
             'instance_ids': [],
-            'track_ids': {},
             'labels': {},
             'confidences': {},
             'processing_time': time.time() - start_time
         }
         
-        for idx, (mask, label, conf, track_id) in enumerate(zip(
+        for idx, (mask, label, conf) in enumerate(zip(
             segmentation_result['masks'],
             segmentation_result['labels'],
-            confidences[:len(segmentation_result['masks'])],
-            segmentation_result['track_ids']
+            confidences[:len(segmentation_result['masks'])]
         )):
             instance_id = idx + 1
             
@@ -677,21 +707,40 @@ class RealGroundedSAM2Processor:
             # Store results
             results['masks_rle'][instance_id] = rle_mask
             results['instance_ids'].append(instance_id)
-            results['track_ids'][instance_id] = track_id
             results['labels'][instance_id] = label
             results['confidences'][instance_id] = float(conf)
             
             # Debug: Log what we're storing
             if self.debug_mode:
-                logger.info(f"  Storing instance {instance_id}: label='{label}', conf={conf:.3f}, track_id={track_id}")
+                logger.info(f"  Storing instance {instance_id}: label='{label}', conf={conf:.3f}")
         
         # Track performance
         self.frame_times.append(results['processing_time'])
         if len(self.frame_times) % 30 == 0:
             avg_time = np.mean(self.frame_times[-30:])
             logger.info(f"Semantic processing: {avg_time*1000:.1f}ms/frame ({1/avg_time:.1f} FPS)")
+        
+        # Apply object tracking if enabled
+        if self.object_tracker is not None:
+            logger.info(f"Applying object tracking to frame {frame_id} with {len(results.get('instance_ids', []))} instances")
+            results = self.object_tracker.process_frame(
+                results, 
+                frame_id,
+                keyframe_idx
+            )
+            logger.info(f"Tracking complete, got {len(results.get('track_ids', {}))} track IDs")
+            
+            # Include tracking decisions in results for saving later
+            if hasattr(self.object_tracker, 'tracking_decisions'):
+                results['tracking_decisions'] = self.object_tracker.tracking_decisions.copy()
             
         return results
+    
+    def set_keyframe_access_callback(self, callback):
+        """Set callback for accessing keyframe data."""
+        self.keyframe_access_callback = callback
+        if self.object_tracker is not None:
+            self.object_tracker.set_callbacks(get_3d_points=callback)
     
     def run(self):
         """Main processing loop."""
@@ -705,12 +754,23 @@ class RealGroundedSAM2Processor:
                 if frame_data is None:
                     break
                 
+                # Store 3D data if available (for tracking)
+                if 'pointmap' in frame_data:
+                    pointmap = torch.from_numpy(frame_data['pointmap']).to(self.device)
+                    point_conf = torch.from_numpy(frame_data['point_conf']).to(self.device)
+                    shape = frame_data['shape']
+                    self.set_3d_data_for_tracking(pointmap, point_conf, shape)
+                else:
+                    self.current_3d_data = None
+                
                 # Process frame
+                logger.info(f"Processing semantic frame {frame_data['frame_id']} (keyframe {frame_data.get('keyframe_idx')})")
                 semantic_data = self.process_frame(
                     frame_data['img'], 
                     frame_data['frame_id'], 
                     frame_data.get('keyframe_idx')
                 )
+                logger.info(f"Semantic processing complete for frame {frame_data['frame_id']}, found {len(semantic_data.get('instance_ids', []))} instances")
                 
                 # Put results in output queue
                 self.result_queue.put(semantic_data)
@@ -724,18 +784,40 @@ class RealGroundedSAM2Processor:
         logger.info("Semantic processor terminated.")
 
 
+def _run_processor_with_tracker(frame_queue, result_queue, vocabulary, device, 
+                               model_selector, confidence_threshold, tracking_config, kwargs):
+    """Helper function to run processor with optional tracker creation."""
+    # Create tracker in the new process if config is provided
+    tracker = None
+    if tracking_config is not None:
+        from mast3r_slam.object_tracker_simple import SimpleObjectTracker
+        tracker = SimpleObjectTracker(tracking_config)
+        logger.info("Created object tracker in semantic processor process")
+    
+    processor = RealGroundedSAM2Processor(
+        frame_queue, result_queue, vocabulary, device, model_selector, 
+        confidence_threshold=confidence_threshold, 
+        object_tracker=tracker,
+        **kwargs
+    )
+    processor.run()
+
+
 def start_real_grounded_sam2_processor(frame_queue: mp.Queue, 
                                       result_queue: mp.Queue,
                                       vocabulary: List[str],
                                       device: str = "cuda:1",
                                       model_selector: Optional[GroundedSAM2ModelSelector] = None,
                                       confidence_threshold: float = 0.35,
+                                      object_tracker = None,
+                                      tracking_config = None,
                                       **kwargs) -> mp.Process:
     """Start the real Grounded-SAM2 processor in a separate process."""
-    processor = RealGroundedSAM2Processor(
-        frame_queue, result_queue, vocabulary, device, model_selector, 
-        confidence_threshold=confidence_threshold, **kwargs
+    
+    process = mp.Process(
+        target=_run_processor_with_tracker,
+        args=(frame_queue, result_queue, vocabulary, device, model_selector, 
+              confidence_threshold, tracking_config, kwargs)
     )
-    process = mp.Process(target=processor.run)
     process.start()
     return process

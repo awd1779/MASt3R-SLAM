@@ -5,7 +5,6 @@ import time
 import logging
 from typing import Dict, Optional, Tuple
 from mast3r_slam.semantic_fusion import SemanticPointmapFusion
-from mast3r_slam.track_manager import GlobalTrackManager
 from mast3r_slam.config import config, set_global_config
 from mast3r_slam.global_opt import FactorGraph
 
@@ -18,12 +17,10 @@ class SemanticSLAMBackend:
     def __init__(self, 
                  keyframes,
                  semantic_keyframes,
-                 track_manager: GlobalTrackManager,
                  K: torch.Tensor,
                  device: str = "cuda"):
         self.keyframes = keyframes
         self.semantic_keyframes = semantic_keyframes
-        self.track_manager = track_manager
         self.device = device
         
         # If K is None (no calibration), create a default intrinsic matrix
@@ -71,28 +68,8 @@ class SemanticSLAMBackend:
         labels, conf = self.fusion.fuse_keyframe_semantics(kf, semantic_data, self.K)
         
         if labels is not None:
-            # Update track manager with local-to-global mapping
-            local_tracks = {}
-            for instance_id in semantic_data['instance_ids']:
-                local_tracks[instance_id] = {
-                    'track_id': semantic_data['track_ids'].get(instance_id, instance_id),
-                    'label': semantic_data['labels'].get(instance_id, 'unknown'),
-                    'confidence': semantic_data['confidences'].get(instance_id, 1.0)
-                }
-                
-            # Get global track mapping
-            local_to_global = self.track_manager.add_frame_tracks(
-                kf_idx, local_tracks
-            )
-            
-            # Remap labels to global track IDs
-            global_labels = torch.zeros_like(labels)
-            for local_id, global_id in local_to_global.items():
-                mask = labels == local_id
-                global_labels[mask] = global_id
-                
-            # Cache results
-            self.keyframe_semantics[kf_idx] = (global_labels, conf)
+            # Cache results directly without track management
+            self.keyframe_semantics[kf_idx] = (labels, conf)
             
             # Track performance
             self.fusion_times.append(time.time() - start_time)
@@ -102,16 +79,6 @@ class SemanticSLAMBackend:
         return False
         
         
-    def update_tracks_on_loop_closure(self, kf_idx1: int, kf_idx2: int):
-        """Update track manager when loop closure is detected."""
-        labels1 = self.keyframe_semantics.get(kf_idx1)
-        labels2 = self.keyframe_semantics.get(kf_idx2)
-        
-        if labels1 is not None and labels2 is not None:
-            self.track_manager.merge_tracks_on_loop_closure(
-                kf_idx1, kf_idx2, labels1[0], labels2[0]
-            )
-            
     def get_semantic_pointcloud(self, kf_indices: Optional[list] = None) -> Dict:
         """
         Get semantic point cloud data for visualization.
@@ -198,17 +165,10 @@ class SemanticSLAMBackend:
 def integrate_semantic_backend(backend_func):
     """Decorator to integrate semantic processing into the backend."""
     def wrapper(cfg, model, states, keyframes, semantic_keyframes, semantic_result_queue, K):
-        # Initialize track manager
-        track_manager = GlobalTrackManager(
-            iou_threshold=0.5,
-            feature_threshold=0.7
-        )
-        
         # Initialize semantic backend
         semantic_backend = SemanticSLAMBackend(
             keyframes, 
             semantic_keyframes,
-            track_manager,
             K,
             device=keyframes.device
         )
@@ -235,17 +195,10 @@ def run_semantic_backend(cfg, model, states, keyframes, semantic_keyframes, sema
     
     device = keyframes.device
     
-    # Initialize track manager
-    track_manager = GlobalTrackManager(
-        iou_threshold=0.5,
-        feature_threshold=0.7
-    )
-    
     # Initialize semantic backend
     semantic_backend = SemanticSLAMBackend(
         keyframes, 
         semantic_keyframes,
-        track_manager,
         K,
         device
     )
@@ -345,10 +298,7 @@ def run_semantic_backend(cfg, model, states, keyframes, semantic_keyframes, sema
                 ):
                     successful_loop_closure = True
                     
-                    # Update track manager on successful loop closure
-                    if semantic_backend and successful_loop_closure:
-                        for loop_idx in loop_kf_idx:
-                            semantic_backend.update_tracks_on_loop_closure(idx, loop_idx)
+                    # Loop closure successful (semantic track update removed)
                             
             with states.lock:
                 states.edges_ii.append(
@@ -408,9 +358,7 @@ def relocalization_with_semantics(frame, keyframes, factor_graph, retrieval_data
                 successful_loop_closure = True
                 keyframes.T_WC[n_kf - 1] = keyframes.T_WC[kf_idx[0]].clone()
                 
-                # Update semantic tracks
-                if semantic_backend and successful_loop_closure:
-                    semantic_backend.update_tracks_on_loop_closure(n_kf - 1, kf_idx[0])
+                # Loop closure successful (semantic track update removed)
             else:
                 keyframes.pop_last()
                 print("Failed to relocalize")

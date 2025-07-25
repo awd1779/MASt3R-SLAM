@@ -1,18 +1,11 @@
 Frame 9 - Segmentation Results
-Total masks: 15
+Total masks: 8
 
-1. a table: 10252 pixels (5.21% of image)
-2. a picture: 23283 pixels (11.84% of image)
-3. a lamp: 1365 pixels (0.69% of image)
-4. a sofa: 28832 pixels (14.66% of image)
-5. a blinds: 15231 pixels (7.75% of image)
-6. a rug: 21651 pixels (11.01% of image)
-7. a basket: 917 pixels (0.47% of image)
-8. a indoor plant: 846 pixels (0.43% of image)
-9. a floor: 22031 pixels (11.21% of image)
-10. a chair: 3248 pixels (1.65% of image)
-11. a ceiling: 41385 pixels (21.05% of image)
-12. a candle: 921 pixels (0.47% of image)
-13. a book: 697 pixels (0.35% of image)
-14. a door: 23032 pixels (11.71% of image)
-15. a switch: 173 pixels (0.09% of image)
+1. a table: 2795 pixels (2.01% of image)
+2. a chair: 2951 pixels (2.12% of image)
+3. a rubbish bin: 1296 pixels (0.93% of image)
+4. a floor: 24088 pixels (17.30% of image)
+5. a floor: 17552 pixels (12.60% of image)
+6. a coffee cup: 2985 pixels (2.14% of image)
+7. a monitor: 1034 pixels (0.74% of image)
+8. monitor: 54390 pixels (39.06% of image)

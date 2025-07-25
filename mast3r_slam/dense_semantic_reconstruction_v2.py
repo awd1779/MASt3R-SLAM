@@ -96,6 +96,8 @@ class DenseSemanticReconstructorV2:
         # Create semantic mask
         semantic_mask = np.zeros((h, w), dtype=np.int32)
         confidence_mask = np.zeros((h, w), dtype=np.float32)
+        # IMPROVED: Priority mask to handle overlaps intelligently
+        priority_mask = np.zeros((h, w), dtype=np.float32)
         label_id_to_name = {0: 'background'}
         next_label_id = 1
         
@@ -155,12 +157,19 @@ class DenseSemanticReconstructorV2:
                             temp_mask = temp_mask.cpu().numpy()
                         mask_size_ratio = np.sum(temp_mask) / (h * w)
                         
-                        # Combined score: higher confidence is better, smaller masks get bonus
-                        # This naturally prioritizes small, high-confidence objects
-                        size_weight = 1.0 / (1.0 + mask_size_ratio * 10)  # Smaller masks get higher weight
-                        combined_score = confidence * (0.5 + 0.5 * size_weight)
+                        # IMPROVED: Calculate priority based on multiple factors
+                        # Smaller objects get higher priority to avoid being overwritten
+                        size_priority = 1.0 - mask_size_ratio  # Smaller = higher priority
                         
-                        instances.append((instance_id, combined_score, confidence, mask_size_ratio))
+                        # Objects with explicit labels (not background) get boost
+                        label_priority = 0.5 if label_name != 'unknown' and label_name != 'background' else 0.0
+                        
+                        # Higher confidence gets priority
+                        confidence_priority = confidence * 0.3
+                        
+                        combined_priority = size_priority + label_priority + confidence_priority
+                        
+                        instances.append((instance_id, combined_priority, confidence, mask_size_ratio))
                     else:
                         size_mismatches.append({
                             'instance_id': instance_id,
@@ -175,20 +184,19 @@ class DenseSemanticReconstructorV2:
                 for mismatch in size_mismatches:
                     logger.warning(f"  - {mismatch['label']}: mask {mismatch['mask_size']} != keyframe {mismatch['keyframe_size']}")
             
-            # Sort by mask size (largest first)
-            # This way, small objects will overwrite large background objects
-            instances.sort(key=lambda x: -x[3])  # Sort by mask_size_ratio (descending)
+            # IMPROVED: Sort by priority (highest first) instead of just size
+            instances.sort(key=lambda x: -x[1])  # Sort by combined_priority (descending)
             logger.info(f"Keyframe {kf_idx}: {len(instances)} masks match keyframe dimensions")
             
             # Debug: show sorting order
             if self.debug:
-                logger.info("  Processing order (largest to smallest):")
-                for instance_id, combined_score, conf, size_ratio in instances[:10]:  # Show top 10
+                logger.info("  Processing order (by priority):")
+                for instance_id, priority, conf, size_ratio in instances[:10]:  # Show top 10
                     label = semantic_data.get('labels', {}).get(instance_id, 'unknown')
-                    logger.info(f"    {label}: size={size_ratio*100:.1f}% (conf={conf:.3f})")
+                    logger.info(f"    {label}: size={size_ratio*100:.1f}%, priority={priority:.3f}, conf={conf:.3f}")
             
             # Process each instance
-            for instance_id, _, _, _ in instances:
+            for instance_id, combined_priority, _, _ in instances:
                 rle = semantic_data['masks_rle'][instance_id]
                 size = rle['size']
                 if len(size) == 3:
@@ -226,13 +234,22 @@ class DenseSemanticReconstructorV2:
                 pixels_in_mask = np.sum(mask_bool)
                 mask_size_ratio = pixels_in_mask / (h * w)
                 
-                # Simple overwrite strategy - since we process large to small,
-                # small objects will naturally overwrite large background objects
-                semantic_mask[mask_bool] = label_id
-                confidence_mask[mask_bool] = confidence
+                # IMPROVED: Only overwrite pixels if we have higher priority
+                # This prevents large background objects from overwriting smaller foreground objects
+                overwrite_mask = mask_bool & (combined_priority > priority_mask)
+                pixels_overwritten = np.sum(overwrite_mask)
                 
-                # Log application result
-                logger.info(f"  Applied {label_name} (conf={confidence:.3f}) to {pixels_in_mask} pixels ({mask_size_ratio*100:.1f}% of image)")
+                if pixels_overwritten > 0:
+                    semantic_mask[overwrite_mask] = label_id
+                    confidence_mask[overwrite_mask] = confidence
+                    priority_mask[overwrite_mask] = combined_priority
+                    
+                    logger.info(f"  Applied {label_name} (conf={confidence:.3f}) to {pixels_overwritten}/{pixels_in_mask} pixels ({mask_size_ratio*100:.1f}% of image)")
+                    
+                    if pixels_overwritten < pixels_in_mask:
+                        logger.debug(f"    Preserved {pixels_in_mask - pixels_overwritten} pixels with higher priority")
+                else:
+                    logger.debug(f"  Skipped {label_name} - all pixels have higher priority objects")
                 
                 # Debug large masks
                 if mask_size_ratio > 0.3:  # More than 30% of image
@@ -253,8 +270,8 @@ class DenseSemanticReconstructorV2:
         
         # Track filtering statistics
         total_points = len(depths)
-        depth_near = depths > 0.1
-        depth_far = depths < 50.0
+        depth_near = depths > 0.05  # Reduced from 0.1 to capture more points
+        depth_far = depths < 100.0  # Increased from 50.0 to capture more points
         finite_points = np.isfinite(X_world).all(axis=1)
         has_label = semantic_mask_flat > 0
         

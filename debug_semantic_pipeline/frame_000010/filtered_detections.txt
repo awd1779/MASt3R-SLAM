@@ -1,0 +1,70 @@
+Filtered 17 detections:
+
+Vocabulary: bag
+Detected: 'a' (score: 0.269)
+Reason: Empty label (length=1, area=0.05)
+
+Vocabulary: bottle
+Detected: '' (score: 0.216)
+Reason: Empty label (length=0, area=0.41)
+
+Vocabulary: coffee cup
+Detected: 'a' (score: 0.261)
+Reason: Empty label (length=1, area=0.05)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.244)
+Reason: Empty label (length=0, area=0.04)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.211)
+Reason: Empty label (length=0, area=0.33)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.216)
+Reason: Empty label (length=0, area=0.29)
+
+Vocabulary: container
+Detected: '' (score: 0.205)
+Reason: Empty label (length=0, area=0.41)
+
+Vocabulary: laptop
+Detected: '' (score: 0.208)
+Reason: Empty label (length=0, area=0.05)
+
+Vocabulary: laptop
+Detected: 'a' (score: 0.285)
+Reason: Empty label (length=1, area=0.03)
+
+Vocabulary: laptop
+Detected: '' (score: 0.220)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: monitor
+Detected: 'a' (score: 0.251)
+Reason: Empty label (length=1, area=0.04)
+
+Vocabulary: monitor
+Detected: '' (score: 0.206)
+Reason: Empty label (length=0, area=0.41)
+
+Vocabulary: monitor
+Detected: '' (score: 0.207)
+Reason: Empty label (length=0, area=0.96)
+
+Vocabulary: monitor
+Detected: '' (score: 0.209)
+Reason: Empty label (length=0, area=0.17)
+
+Vocabulary: mouse
+Detected: '' (score: 0.201)
+Reason: Empty label (length=0, area=0.04)
+
+Vocabulary: rubbish bin
+Detected: '' (score: 0.227)
+Reason: Empty label (length=0, area=0.42)
+
+Vocabulary: table
+Detected: '' (score: 0.211)
+Reason: Empty label (length=0, area=0.01)
+

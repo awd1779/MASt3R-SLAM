@@ -1,84 +1,80 @@
 Frame 0 - deduped detections
-Total detections: 20
-Confidence threshold: 0.3
+Total detections: 19
+Confidence threshold: 0.2
 
-1. a table (conf: 0.868)
-   Box: [0.1, 266.0, 211.9, 383.4]
-   Size: 211.9x117.4 (41.4%x30.6% of image)
+1. a table (conf: 0.703)
+   Box: [52.9, 178.6, 343.4, 270.9]
+   Size: 290.5x92.3 (56.7%x33.9% of image)
 
-2. a vase (conf: 0.686)
-   Box: [166.9, 244.5, 191.0, 278.1]
-   Size: 24.1x33.6 (4.7%x8.7% of image)
+2. a bottle (conf: 0.694)
+   Box: [161.2, 201.4, 181.9, 257.7]
+   Size: 20.7x56.3 (4.1%x20.7% of image)
 
-3. a blinds (conf: 0.675)
-   Box: [308.8, 64.5, 511.9, 288.6]
-   Size: 203.1x224.1 (39.7%x58.3% of image)
+3. a headset (conf: 0.467)
+   Box: [138.4, 38.7, 167.9, 61.1]
+   Size: 29.4x22.4 (5.7%x8.2% of image)
 
-4. a lamp (conf: 0.645)
-   Box: [166.2, 234.9, 191.9, 278.4]
-   Size: 25.7x43.5 (5.0%x11.3% of image)
+4. a monitor (conf: 0.411)
+   Box: [0.0, 37.4, 28.7, 111.2]
+   Size: 28.7x73.7 (5.6%x27.1% of image)
 
-5. a ceiling (conf: 0.630)
-   Box: [-0.0, 0.1, 511.9, 129.3]
-   Size: 511.9x129.3 (100.0%x33.7% of image)
+5. a floor (conf: 0.403)
+   Box: [316.4, 191.2, 447.7, 270.6]
+   Size: 131.3x79.4 (25.6%x29.2% of image)
 
-6. a floor (conf: 0.615)
-   Box: [50.2, 289.1, 483.1, 383.8]
-   Size: 432.9x94.6 (84.5%x24.6% of image)
+6. a chair (conf: 0.389)
+   Box: [271.3, 177.5, 300.3, 216.3]
+   Size: 29.0x38.8 (5.7%x14.3% of image)
 
-7. a rug (conf: 0.551)
-   Box: [65.1, 290.4, 479.8, 383.8]
-   Size: 414.7x93.4 (81.0%x24.3% of image)
+7. a laptop (conf: 0.388)
+   Box: [94.5, 138.5, 140.0, 176.1]
+   Size: 45.5x37.6 (8.9%x13.8% of image)
 
-8. a basket (conf: 0.511)
-   Box: [28.4, 276.3, 56.5, 310.7]
-   Size: 28.2x34.4 (5.5%x9.0% of image)
+8. a chair (conf: 0.384)
+   Box: [84.8, 182.2, 136.7, 231.6]
+   Size: 51.9x49.4 (10.1%x18.2% of image)
 
-9. a window (conf: 0.479)
-   Box: [55.5, 166.5, 155.3, 252.9]
-   Size: 99.9x86.4 (19.5%x22.5% of image)
+9. a coffee cup (conf: 0.376)
+   Box: [183.3, 224.9, 204.0, 249.3]
+   Size: 20.7x24.5 (4.0%x9.0% of image)
 
-10. a wall (conf: 0.408)
-   Box: [0.0, 80.2, 259.4, 310.5]
-   Size: 259.4x230.3 (50.7%x60.0% of image)
+10. a rubbish bin (conf: 0.357)
+   Box: [183.6, 223.9, 204.4, 249.4]
+   Size: 20.8x25.5 (4.1%x9.4% of image)
 
-11. a book (conf: 0.378)
-   Box: [53.9, 282.9, 91.1, 306.0]
-   Size: 37.2x23.1 (7.3%x6.0% of image)
+11. a laptop (conf: 0.334)
+   Box: [80.0, 137.9, 140.6, 184.6]
+   Size: 60.6x46.6 (11.8%x17.1% of image)
 
-12. a blanket (conf: 0.365)
-   Box: [132.8, 273.0, 168.4, 290.5]
-   Size: 35.6x17.5 (6.9%x4.6% of image)
+12. a floor (conf: 0.328)
+   Box: [43.1, 182.2, 447.5, 270.7]
+   Size: 404.5x88.5 (79.0%x32.5% of image)
 
-13. a cushion (conf: 0.361)
-   Box: [166.9, 248.2, 190.9, 277.8]
-   Size: 24.0x29.6 (4.7%x7.7% of image)
+13. a monitor (conf: 0.320)
+   Box: [104.3, 138.6, 139.5, 160.3]
+   Size: 35.2x21.6 (6.9%x8.0% of image)
 
-14. a wall plug (conf: 0.358)
-   Box: [270.4, 264.8, 276.9, 275.9]
-   Size: 6.5x11.1 (1.3%x2.9% of image)
+14. a bag (conf: 0.317)
+   Box: [151.6, 165.4, 172.9, 179.9]
+   Size: 21.3x14.5 (4.2%x5.3% of image)
 
-15. a picture (conf: 0.357)
-   Box: [0.1, 0.7, 512.1, 383.0]
-   Size: 512.0x382.2 (100.0%x99.5% of image)
+15. a mouse (conf: 0.296)
+   Box: [125.3, 172.8, 137.8, 180.5]
+   Size: 12.5x7.7 (2.4%x2.8% of image)
 
-16. a candle (conf: 0.348)
-   Box: [34.3, 287.9, 49.8, 305.1]
-   Size: 15.6x17.2 (3.0%x4.5% of image)
+16. a mouse (conf: 0.294)
+   Box: [195.4, 260.4, 222.8, 271.0]
+   Size: 27.4x10.7 (5.4%x3.9% of image)
 
-17. a wall plug (conf: 0.317)
-   Box: [267.8, 262.6, 279.8, 278.6]
-   Size: 12.0x16.0 (2.3%x4.2% of image)
+17. a rubbish bin (conf: 0.273)
+   Box: [178.6, 195.7, 210.6, 249.5]
+   Size: 32.1x53.8 (6.3%x19.8% of image)
 
-18. a plant stand (conf: 0.314)
-   Box: [164.8, 233.2, 193.0, 278.8]
-   Size: 28.2x45.6 (5.5%x11.9% of image)
+18. a monitor (conf: 0.271)
+   Box: [216.6, 151.2, 239.8, 174.8]
+   Size: 23.2x23.5 (4.5%x8.6% of image)
 
-19. a plate (conf: 0.313)
-   Box: [166.7, 247.1, 191.2, 277.9]
-   Size: 24.5x30.7 (4.8%x8.0% of image)
-
-20. a plate (conf: 0.302)
-   Box: [31.7, 298.1, 53.3, 310.4]
-   Size: 21.6x12.3 (4.2%x3.2% of image)
+19. a mouse (conf: 0.261)
+   Box: [195.3, 238.9, 223.5, 258.1]
+   Size: 28.2x19.2 (5.5%x7.1% of image)
 

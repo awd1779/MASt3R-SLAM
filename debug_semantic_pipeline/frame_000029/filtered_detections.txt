@@ -1,0 +1,94 @@
+Filtered 23 detections:
+
+Vocabulary: bag
+Detected: '' (score: 0.226)
+Reason: Empty label (length=0, area=0.12)
+
+Vocabulary: bottle
+Detected: 'a' (score: 0.255)
+Reason: Empty label (length=1, area=0.01)
+
+Vocabulary: chair
+Detected: '' (score: 0.219)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: chair
+Detected: '' (score: 0.239)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: chair
+Detected: '' (score: 0.210)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: coffee cup
+Detected: 'a' (score: 0.251)
+Reason: Empty label (length=1, area=0.01)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.248)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.202)
+Reason: Empty label (length=0, area=0.16)
+
+Vocabulary: container
+Detected: '' (score: 0.222)
+Reason: Empty label (length=0, area=0.15)
+
+Vocabulary: container
+Detected: '' (score: 0.203)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: container
+Detected: '' (score: 0.202)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: floor
+Detected: '' (score: 0.207)
+Reason: Empty label (length=0, area=0.26)
+
+Vocabulary: floor
+Detected: '' (score: 0.227)
+Reason: Empty label (length=0, area=0.43)
+
+Vocabulary: headset
+Detected: '' (score: 0.229)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: headset
+Detected: '' (score: 0.207)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: laptop
+Detected: '' (score: 0.240)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: laptop
+Detected: '' (score: 0.223)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: monitor
+Detected: '' (score: 0.215)
+Reason: Empty label (length=0, area=0.08)
+
+Vocabulary: mouse
+Detected: '' (score: 0.245)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: mouse
+Detected: '' (score: 0.207)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: mouse
+Detected: '' (score: 0.204)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: mouse
+Detected: '' (score: 0.242)
+Reason: Empty label (length=0, area=0.12)
+
+Vocabulary: mouse
+Detected: 'a' (score: 0.265)
+Reason: Empty label (length=1, area=0.13)
+

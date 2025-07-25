@@ -1,0 +1,88 @@
+Frame 36 - grounding detections
+Total detections: 21
+Confidence threshold: 0.2
+
+1. a bag (conf: 0.299)
+   Box: [189.5, 126.3, 226.8, 198.5]
+   Size: 37.3x72.2 (7.3%x26.5% of image)
+
+2. a bottle (conf: 0.274)
+   Box: [80.6, 122.3, 90.5, 137.0]
+   Size: 9.9x14.6 (1.9%x5.4% of image)
+
+3. a chair (conf: 0.323)
+   Box: [252.4, 210.5, 304.9, 270.1]
+   Size: 52.5x59.6 (10.3%x21.9% of image)
+
+4. a chair (conf: 0.283)
+   Box: [239.2, 186.4, 267.6, 241.6]
+   Size: 28.4x55.2 (5.5%x20.3% of image)
+
+5. a chair (conf: 0.287)
+   Box: [42.7, 186.7, 113.4, 218.7]
+   Size: 70.7x32.0 (13.8%x11.8% of image)
+
+6. a chair (conf: 0.263)
+   Box: [117.6, 183.3, 174.4, 213.2]
+   Size: 56.8x29.9 (11.1%x11.0% of image)
+
+7. a container (conf: 0.286)
+   Box: [189.0, 126.1, 226.8, 198.7]
+   Size: 37.8x72.6 (7.4%x26.7% of image)
+
+8. a floor (conf: 0.328)
+   Box: [106.2, 158.7, 392.4, 270.5]
+   Size: 286.2x111.8 (55.9%x41.1% of image)
+
+9. a floor (conf: 0.299)
+   Box: [56.0, 158.3, 393.1, 270.5]
+   Size: 337.2x112.3 (65.9%x41.3% of image)
+
+10. a floor (conf: 0.281)
+   Box: [103.0, 158.8, 511.3, 270.5]
+   Size: 408.3x111.7 (79.7%x41.1% of image)
+
+11. a laptop (conf: 0.284)
+   Box: [176.3, 153.9, 202.4, 190.4]
+   Size: 26.1x36.4 (5.1%x13.4% of image)
+
+12. a laptop (conf: 0.295)
+   Box: [176.8, 165.1, 199.1, 189.9]
+   Size: 22.3x24.8 (4.4%x9.1% of image)
+
+13. a laptop (conf: 0.283)
+   Box: [176.5, 152.3, 236.3, 190.5]
+   Size: 59.7x38.1 (11.7%x14.0% of image)
+
+14. a monitor (conf: 0.480)
+   Box: [453.9, 120.3, 499.7, 145.4]
+   Size: 45.8x25.1 (8.9%x9.2% of image)
+
+15. a monitor (conf: 0.289)
+   Box: [423.9, 115.7, 453.7, 141.9]
+   Size: 29.8x26.1 (5.8%x9.6% of image)
+
+16. a rubbish bin (conf: 0.270)
+   Box: [156.3, 145.9, 171.5, 165.8]
+   Size: 15.2x19.9 (3.0%x7.3% of image)
+
+17. a rubbish bin (conf: 0.287)
+   Box: [145.1, 163.8, 163.6, 186.5]
+   Size: 18.5x22.7 (3.6%x8.3% of image)
+
+18. a rubbish bin (conf: 0.293)
+   Box: [188.6, 126.3, 227.2, 198.9]
+   Size: 38.6x72.5 (7.5%x26.7% of image)
+
+19. a table (conf: 0.382)
+   Box: [1.9, 201.4, 247.3, 270.3]
+   Size: 245.4x68.9 (47.9%x25.3% of image)
+
+20. a table (conf: 0.321)
+   Box: [0.6, 200.7, 287.8, 270.4]
+   Size: 287.2x69.7 (56.1%x25.6% of image)
+
+21. a table (conf: 0.287)
+   Box: [0.7, 200.9, 304.1, 270.3]
+   Size: 303.4x69.4 (59.3%x25.5% of image)
+

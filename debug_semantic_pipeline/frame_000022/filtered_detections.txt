@@ -1,0 +1,82 @@
+Filtered 20 detections:
+
+Vocabulary: bag
+Detected: '' (score: 0.213)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: bottle
+Detected: '' (score: 0.220)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: bottle
+Detected: '' (score: 0.219)
+Reason: Empty label (length=0, area=0.12)
+
+Vocabulary: bottle
+Detected: '' (score: 0.214)
+Reason: Empty label (length=0, area=0.13)
+
+Vocabulary: chair
+Detected: '' (score: 0.235)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: chair
+Detected: '' (score: 0.211)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: chair
+Detected: '' (score: 0.234)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.224)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: container
+Detected: '' (score: 0.218)
+Reason: Empty label (length=0, area=0.06)
+
+Vocabulary: container
+Detected: '' (score: 0.249)
+Reason: Empty label (length=0, area=0.14)
+
+Vocabulary: laptop
+Detected: '' (score: 0.249)
+Reason: Empty label (length=0, area=0.13)
+
+Vocabulary: laptop
+Detected: '' (score: 0.216)
+Reason: Empty label (length=0, area=0.12)
+
+Vocabulary: laptop
+Detected: '' (score: 0.229)
+Reason: Empty label (length=0, area=0.04)
+
+Vocabulary: laptop
+Detected: '' (score: 0.248)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: laptop
+Detected: '' (score: 0.205)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: monitor
+Detected: '' (score: 0.211)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: monitor
+Detected: '' (score: 0.223)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: monitor
+Detected: '' (score: 0.243)
+Reason: Empty label (length=0, area=0.14)
+
+Vocabulary: mouse
+Detected: '' (score: 0.218)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: table
+Detected: '' (score: 0.210)
+Reason: Empty label (length=0, area=0.01)
+

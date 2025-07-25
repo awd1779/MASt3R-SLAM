@@ -1,0 +1,76 @@
+Frame 31 - deduped detections
+Total detections: 18
+Confidence threshold: 0.2
+
+1. a container (conf: 0.604)
+   Box: [307.1, 97.2, 359.4, 225.2]
+   Size: 52.3x128.1 (10.2%x47.1% of image)
+
+2. a floor (conf: 0.540)
+   Box: [100.6, 155.8, 391.8, 270.5]
+   Size: 291.1x114.7 (56.9%x42.2% of image)
+
+3. a bag (conf: 0.519)
+   Box: [432.3, 166.2, 500.6, 209.0]
+   Size: 68.2x42.8 (13.3%x15.8% of image)
+
+4. a rubbish bin (conf: 0.510)
+   Box: [0.6, 215.5, 68.4, 270.4]
+   Size: 67.8x55.0 (13.2%x20.2% of image)
+
+5. a table (conf: 0.429)
+   Box: [112.6, 146.4, 231.0, 192.8]
+   Size: 118.4x46.4 (23.1%x17.1% of image)
+
+6. a chair (conf: 0.412)
+   Box: [123.6, 153.2, 157.0, 205.9]
+   Size: 33.4x52.7 (6.5%x19.4% of image)
+
+7. a headset (conf: 0.408)
+   Box: [430.9, 165.0, 503.5, 210.4]
+   Size: 72.7x45.4 (14.2%x16.7% of image)
+
+8. a chair (conf: 0.354)
+   Box: [159.0, 152.3, 187.3, 197.8]
+   Size: 28.4x45.5 (5.5%x16.7% of image)
+
+9. a chair (conf: 0.336)
+   Box: [186.8, 151.2, 213.7, 194.4]
+   Size: 26.8x43.2 (5.2%x15.9% of image)
+
+10. a bottle (conf: 0.323)
+   Box: [375.1, 145.5, 392.0, 185.9]
+   Size: 16.9x40.3 (3.3%x14.8% of image)
+
+11. a monitor (conf: 0.315)
+   Box: [375.4, 62.4, 511.1, 181.5]
+   Size: 135.6x119.1 (26.5%x43.8% of image)
+
+12. a mouse (conf: 0.285)
+   Box: [432.4, 166.1, 502.3, 210.3]
+   Size: 69.9x44.2 (13.6%x16.3% of image)
+
+13. a laptop (conf: 0.284)
+   Box: [135.2, 137.9, 152.6, 148.7]
+   Size: 17.4x10.8 (3.4%x4.0% of image)
+
+14. a chair (conf: 0.278)
+   Box: [211.0, 148.0, 234.9, 187.3]
+   Size: 23.9x39.4 (4.7%x14.5% of image)
+
+15. a coffee cup (conf: 0.277)
+   Box: [486.1, 133.1, 499.0, 143.9]
+   Size: 12.9x10.9 (2.5%x4.0% of image)
+
+16. a headset (conf: 0.277)
+   Box: [374.3, 62.3, 511.0, 187.7]
+   Size: 136.7x125.4 (26.7%x46.1% of image)
+
+17. a coffee cup (conf: 0.269)
+   Box: [484.0, 130.7, 502.1, 146.5]
+   Size: 18.1x15.7 (3.5%x5.8% of image)
+
+18. a table (conf: 0.267)
+   Box: [0.5, 156.7, 113.3, 269.9]
+   Size: 112.7x113.2 (22.0%x41.6% of image)
+

@@ -1,0 +1,74 @@
+Filtered 18 detections:
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.209)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.222)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: container
+Detected: '' (score: 0.237)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: container
+Detected: '' (score: 0.238)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: container
+Detected: '' (score: 0.205)
+Reason: Empty label (length=0, area=0.75)
+
+Vocabulary: container
+Detected: '' (score: 0.208)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: floor
+Detected: '' (score: 0.208)
+Reason: Empty label (length=0, area=0.20)
+
+Vocabulary: floor
+Detected: '' (score: 0.228)
+Reason: Empty label (length=0, area=0.22)
+
+Vocabulary: headset
+Detected: '' (score: 0.216)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: headset
+Detected: '' (score: 0.248)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: headset
+Detected: '' (score: 0.209)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: headset
+Detected: '' (score: 0.219)
+Reason: Empty label (length=0, area=0.07)
+
+Vocabulary: monitor
+Detected: '' (score: 0.233)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: mouse
+Detected: '' (score: 0.229)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.247)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: mouse
+Detected: '' (score: 0.207)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: rubbish bin
+Detected: '' (score: 0.249)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: rubbish bin
+Detected: '' (score: 0.209)
+Reason: Empty label (length=0, area=0.20)
+

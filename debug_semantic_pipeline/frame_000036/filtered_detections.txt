@@ -1,0 +1,90 @@
+Filtered 22 detections:
+
+Vocabulary: bag
+Detected: 'a' (score: 0.255)
+Reason: Empty label (length=1, area=0.00)
+
+Vocabulary: bag
+Detected: '' (score: 0.210)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: bottle
+Detected: '' (score: 0.233)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: bottle
+Detected: '' (score: 0.232)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: bottle
+Detected: '' (score: 0.205)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.239)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.239)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.203)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.238)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: container
+Detected: '' (score: 0.237)
+Reason: Empty label (length=0, area=0.35)
+
+Vocabulary: container
+Detected: '' (score: 0.242)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: floor
+Detected: '' (score: 0.214)
+Reason: Empty label (length=0, area=0.18)
+
+Vocabulary: floor
+Detected: '' (score: 0.232)
+Reason: Empty label (length=0, area=0.37)
+
+Vocabulary: headset
+Detected: '' (score: 0.238)
+Reason: Empty label (length=0, area=0.33)
+
+Vocabulary: headset
+Detected: '' (score: 0.220)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: laptop
+Detected: '' (score: 0.241)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: laptop
+Detected: '' (score: 0.237)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: monitor
+Detected: '' (score: 0.244)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: mouse
+Detected: 'a' (score: 0.252)
+Reason: Empty label (length=1, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.221)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: rubbish bin
+Detected: '' (score: 0.236)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: rubbish bin
+Detected: '' (score: 0.224)
+Reason: Empty label (length=0, area=0.03)
+

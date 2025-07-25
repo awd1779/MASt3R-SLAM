@@ -559,13 +559,11 @@ if __name__ == "__main__":
         
         # Save semantic reconstruction if enabled
         if semantic_keyframes is not None:
-            from mast3r_slam.track_manager import GlobalTrackManager
             from mast3r_slam.semantic_integration import SemanticSLAMBackend
             
             # Create semantic backend for export
-            track_manager = GlobalTrackManager()
             semantic_backend = SemanticSLAMBackend(
-                keyframes, semantic_keyframes, track_manager, K, device
+                keyframes, semantic_keyframes, K, device
             )
             
             # Wait for any remaining semantic results to be processed

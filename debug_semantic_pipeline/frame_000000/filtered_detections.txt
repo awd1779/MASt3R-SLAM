@@ -1,0 +1,58 @@
+Filtered 14 detections:
+
+Vocabulary: bag
+Detected: '' (score: 0.242)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: bag
+Detected: '' (score: 0.207)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: bag
+Detected: '' (score: 0.207)
+Reason: Empty label (length=0, area=0.19)
+
+Vocabulary: coffee cup
+Detected: '' (score: 0.229)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: container
+Detected: '' (score: 0.236)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: container
+Detected: '' (score: 0.229)
+Reason: Empty label (length=0, area=0.19)
+
+Vocabulary: container
+Detected: '' (score: 0.220)
+Reason: Empty label (length=0, area=0.63)
+
+Vocabulary: headset
+Detected: '' (score: 0.227)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: monitor
+Detected: '' (score: 0.240)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: mouse
+Detected: '' (score: 0.216)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.215)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: mouse
+Detected: '' (score: 0.211)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: rubbish bin
+Detected: '' (score: 0.231)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: rubbish bin
+Detected: '' (score: 0.219)
+Reason: Empty label (length=0, area=0.02)
+

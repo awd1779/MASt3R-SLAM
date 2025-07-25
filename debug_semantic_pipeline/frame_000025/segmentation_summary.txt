@@ -1,0 +1,23 @@
+Frame 25 - Segmentation Results
+Total masks: 20
+
+1. a chair: 3967 pixels (2.85% of image)
+2. a floor: 24432 pixels (17.54% of image)
+3. a bag: 254 pixels (0.18% of image)
+4. a rubbish bin: 1509 pixels (1.08% of image)
+5. a table: 5690 pixels (4.09% of image)
+6. a rubbish bin: 900 pixels (0.65% of image)
+7. a chair: 2317 pixels (1.66% of image)
+8. a table: 6019 pixels (4.32% of image)
+9. a headset: 6460 pixels (4.64% of image)
+10. a monitor: 1955 pixels (1.40% of image)
+11. a floor: 20873 pixels (14.99% of image)
+12. a coffee cup: 190 pixels (0.14% of image)
+13. a laptop: 195 pixels (0.14% of image)
+14. a bottle: 63 pixels (0.05% of image)
+15. a bottle: 83 pixels (0.06% of image)
+16. a table: 9928 pixels (7.13% of image)
+17. a laptop: 646 pixels (0.46% of image)
+18. bottle: 67 pixels (0.05% of image)
+19. a coffee cup: 352 pixels (0.25% of image)
+20. chair: 680 pixels (0.49% of image)
