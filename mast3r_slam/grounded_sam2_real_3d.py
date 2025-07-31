@@ -7,6 +7,7 @@ import torch
 import numpy as np
 from typing import Dict, List, Optional, Tuple
 import logging
+import traceback
 import multiprocessing as mp
 from pathlib import Path
 
@@ -53,7 +54,7 @@ class RealGroundedSAM2Processor3D(RealGroundedSAM2Processor):
                 self.current_keyframe = MockKeyframe(keyframe_data)
                 logger.debug(f"Received keyframe data for frame {frame_id}")
             
-            logger.info(f"Processing frame {frame_id} (keyframe_idx: {keyframe_idx})")
+            logger.info(f"Processing frame {frame_id} (keyframe_idx: {keyframe_idx}, has_keyframe_data: {keyframe_data is not None})")
             
             # Process the frame
             result = self.process_frame(img, frame_id, keyframe_idx)
@@ -61,12 +62,18 @@ class RealGroundedSAM2Processor3D(RealGroundedSAM2Processor):
             # Apply 3D tracking if enabled and keyframe available
             if self.tracker is not None and self.current_keyframe is not None:
                 if hasattr(self.tracker, 'process_frame'):  # Check if it's the 3D tracker
-                    # Use 3D geometric tracking
-                    track_assignments = self.tracker.process_frame(
-                        self.current_keyframe,
-                        result,
-                        frame_id
-                    )
+                    logger.info(f"Applying 3D tracking for frame {frame_id} with {len(result.get('instance_ids', []))} instances")
+                    try:
+                        # Use 3D geometric tracking
+                        track_assignments = self.tracker.process_frame(
+                            self.current_keyframe,
+                            result,
+                            frame_id
+                        )
+                    except Exception as e:
+                        logger.error(f"Error in 3D tracking: {e}")
+                        logger.error(f"Traceback: {traceback.format_exc()}")
+                        track_assignments = {}
                     
                     # Update result with track IDs
                     result['track_ids'] = track_assignments
@@ -86,6 +93,15 @@ class RealGroundedSAM2Processor3D(RealGroundedSAM2Processor):
                                     'method': '3d_geometric'
                                 })
                         result['tracking_decisions'] = decisions
+            else:
+                # No tracking applied
+                logger.warning(f"No tracking applied for frame {frame_id}: tracker={self.tracker is not None}, keyframe={self.current_keyframe is not None}")
+                if not hasattr(self, 'tracker') or self.tracker is None:
+                    logger.warning("  Reason: No tracker initialized")
+                elif self.current_keyframe is None:
+                    logger.warning("  Reason: No keyframe data available")
+                elif not hasattr(self.tracker, 'process_frame'):
+                    logger.warning("  Reason: Tracker does not have process_frame method")
             
             # Send result
             self.result_queue.put(result)

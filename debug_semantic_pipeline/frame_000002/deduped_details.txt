@@ -1,0 +1,60 @@
+Frame 2 - deduped detections
+Total detections: 14
+Confidence threshold: 0.2
+
+1. a table (conf: 0.913)
+   Box: [222.2, 282.8, 465.2, 383.6]
+   Size: 243.0x100.8 (47.5%x26.3% of image)
+
+2. a window (conf: 0.885)
+   Box: [280.8, 166.5, 378.2, 253.7]
+   Size: 97.4x87.2 (19.0%x22.7% of image)
+
+3. a door (conf: 0.774)
+   Box: [52.7, 134.0, 133.9, 383.3]
+   Size: 81.2x249.4 (15.9%x64.9% of image)
+
+4. a vase (conf: 0.700)
+   Box: [394.1, 261.0, 428.3, 309.3]
+   Size: 34.2x48.3 (6.7%x12.6% of image)
+
+5. a ceiling (conf: 0.610)
+   Box: [0.0, 0.1, 512.0, 107.6]
+   Size: 512.0x107.6 (100.0%x28.0% of image)
+
+6. a rug (conf: 0.572)
+   Box: [74.9, 328.6, 511.7, 384.0]
+   Size: 436.8x55.4 (85.3%x14.4% of image)
+
+7. a wall (conf: 0.472)
+   Box: [133.5, 84.7, 512.1, 365.6]
+   Size: 378.6x281.0 (73.9%x73.2% of image)
+
+8. a plate (conf: 0.468)
+   Box: [349.1, 294.9, 393.3, 310.6]
+   Size: 44.2x15.7 (8.6%x4.1% of image)
+
+9. a vent (conf: 0.467)
+   Box: [9.7, 18.7, 119.3, 73.8]
+   Size: 109.7x55.1 (21.4%x14.3% of image)
+
+10. a basket (conf: 0.436)
+   Box: [258.4, 268.6, 279.2, 300.4]
+   Size: 20.8x31.8 (4.1%x8.3% of image)
+
+11. a book (conf: 0.343)
+   Box: [277.5, 282.7, 306.8, 303.3]
+   Size: 29.2x20.6 (5.7%x5.4% of image)
+
+12. a wall plug (conf: 0.277)
+   Box: [200.6, 251.6, 207.2, 259.6]
+   Size: 6.6x8.0 (1.3%x2.1% of image)
+
+13. a pillar (conf: 0.269)
+   Box: [0.2, 112.2, 135.6, 383.5]
+   Size: 135.4x271.3 (26.4%x70.7% of image)
+
+14. a wall (conf: 0.258)
+   Box: [198.2, 249.5, 209.7, 262.4]
+   Size: 11.5x12.9 (2.2%x3.3% of image)
+

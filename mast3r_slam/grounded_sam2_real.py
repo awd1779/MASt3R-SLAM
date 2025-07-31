@@ -224,7 +224,7 @@ class RealGroundedSAM2Processor:
         
         sam2_checkpoint = sam2_config = grounding_checkpoint = grounding_config = None
         
-        # SAM2 filename mapping
+        # SAM2 filename mapping - check older versions first for compatibility
         sam2_files = {
             "hiera_tiny": ["sam2_hiera_tiny.pt", "sam2.1_hiera_tiny.pt"],
             "hiera_small": ["sam2_hiera_small.pt", "sam2.1_hiera_small.pt"],
@@ -235,7 +235,8 @@ class RealGroundedSAM2Processor:
         
         grounding_files = {
             "grounding_dino_swin-t": "groundingdino_swint_ogc.pth",
-            "grounding_dino_swin-b": "groundingdino_swinb_cogcoor.pth"
+            "grounding_dino_swin-b": "groundingdino_swinb_cogcoor.pth",
+            "grounding_dino_swin-l": "groundingdino_swinl_cogcoor.pth"
         }.get(self.grounding_model_name, "")
         
         for path in search_paths:
@@ -295,8 +296,23 @@ class RealGroundedSAM2Processor:
             }
             config_name = next((v for k, v in config_map.items() if k in self.sam2_model_name), "sam2_hiera_b+.yaml")
             
-            # Initialize SAM2
-            sam2_model = build_sam2(config_file=config_name, ckpt_path=sam2_ckpt, device=self.device).to(dtype=self.dtype)
+            # Initialize SAM2 with compatibility handling
+            try:
+                sam2_model = build_sam2(config_file=config_name, ckpt_path=sam2_ckpt, device=self.device).to(dtype=self.dtype)
+            except RuntimeError as e:
+                if "Unexpected key(s)" in str(e):
+                    logger.warning("SAM2 checkpoint version mismatch detected. Attempting compatibility mode...")
+                    # Try loading with strict=False to ignore unexpected keys
+                    sam2_model = build_sam2(config_file=config_name, ckpt_path=None, device=self.device).to(dtype=self.dtype)
+                    checkpoint = torch.load(sam2_ckpt, map_location=self.device)
+                    if "model" in checkpoint:
+                        checkpoint = checkpoint["model"]
+                    # Load with strict=False to ignore version differences
+                    sam2_model.load_state_dict(checkpoint, strict=False)
+                    logger.info("Successfully loaded SAM2 model in compatibility mode")
+                else:
+                    raise
+            
             self.sam2_predictor = SAM2ImagePredictor(sam2_model)
             
             # Initialize Grounding DINO
@@ -451,6 +467,9 @@ class RealGroundedSAM2Processor:
                 self.visualize_detections(image, boxes_xyxy, all_labels, logits, 
                                         frame_idx, "deduped")
             
+            # Store grounding scores for use in segmentation
+            self._last_grounding_scores = logits.tolist()
+            
             return boxes_xyxy, all_labels, logits
         
         # No detections found
@@ -507,6 +526,412 @@ class RealGroundedSAM2Processor:
         keep = torch.tensor(keep, dtype=torch.long)
         return boxes[keep], scores[keep], [labels[i] for i in keep]
     
+    def _deduplicate_masks(self, masks: List[np.ndarray], labels: List[str], frame_idx: int) -> Tuple[List[np.ndarray], List[str]]:
+        """Deduplicate overlapping segmentation masks using simple size and containment logic."""
+        if len(masks) <= 1:
+            return masks, labels
+        
+        # Calculate mask areas
+        mask_areas = []
+        for i, mask in enumerate(masks):
+            area = np.sum(mask > 0)
+            mask_areas.append(area)
+        
+        def should_allow_overlap(idx_i, idx_j, masks_i, masks_j, area_i, area_j):
+            """Determine if overlap should be allowed based on size and containment only."""
+            
+            # Calculate overlap metrics
+            intersection = np.sum((masks_i > 0) & (masks_j > 0))
+            if intersection == 0:
+                return True  # No overlap, both can exist
+            
+            # Containment ratios
+            containment_i_in_j = intersection / area_i if area_i > 0 else 0
+            containment_j_in_i = intersection / area_j if area_j > 0 else 0
+            
+            # Size-based hierarchy: smaller objects can be on/in larger objects
+            size_ratio = area_i / area_j if area_j > 0 else 1.0
+            
+            # If one object is significantly smaller and mostly contained in the larger
+            if size_ratio < 0.5 and containment_i_in_j > 0.7:
+                # Small object i is mostly within large object j
+                return True
+            elif size_ratio > 2.0 and containment_j_in_i > 0.7:
+                # Small object j is mostly within large object i
+                return True
+            
+            # High containment in either direction suggests valid relationship
+            if containment_i_in_j > 0.8 or containment_j_in_i > 0.8:
+                return True
+            
+            return False
+        
+        # Sort by area (process larger objects first)
+        order = sorted(range(len(masks)), key=lambda i: mask_areas[i], reverse=True)
+        
+        keep = []
+        removed = []
+        
+        for i in order:
+            if mask_areas[i] == 0:
+                continue  # Skip empty masks
+                
+            should_keep = True
+            
+            # Check overlap with already kept masks
+            for j in keep:
+                # Calculate overlap
+                intersection = np.sum((masks[i] > 0) & (masks[j] > 0))
+                if intersection == 0:
+                    continue  # No overlap
+                
+                union = np.sum((masks[i] > 0) | (masks[j] > 0))
+                iou = intersection / union if union > 0 else 0
+                
+                # For same object type, always deduplicate
+                if labels[i] == labels[j]:
+                    if iou > 0.5:  # Lower threshold for same objects
+                        should_keep = False
+                        removed.append({
+                            'label': labels[i],
+                            'area': mask_areas[i],
+                            'iou': iou,
+                            'kept_label': labels[j],
+                            'kept_area': mask_areas[j],
+                            'reason': 'duplicate_same_type'
+                        })
+                        break
+                else:
+                    # For different objects, check if overlap is allowed
+                    if not should_allow_overlap(i, j, masks[i], masks[j], mask_areas[i], mask_areas[j]):
+                        # High overlap without valid size/containment relationship
+                        if iou > 0.6:
+                            should_keep = False
+                            removed.append({
+                                'label': labels[i],
+                                'area': mask_areas[i],
+                                'iou': iou,
+                                'kept_label': labels[j],
+                                'kept_area': mask_areas[j],
+                                'reason': 'invalid_overlap'
+                            })
+                            break
+            
+            if should_keep:
+                keep.append(i)
+        
+        # Log what was removed
+        if removed and self.save_debug_visualizations:
+            logger.info(f"Frame {frame_idx}: Removed {len(removed)} masks:")
+            for r in removed:
+                logger.info(f"  - Removed '{r['label']}' (area: {r['area']}) - "
+                          f"IoU: {r['iou']:.2f} with '{r['kept_label']}' - Reason: {r['reason']}")
+        
+        return [masks[i] for i in keep], [labels[i] for i in keep]
+    
+    def _merge_duplicate_labels(self, masks: List[np.ndarray], labels: List[str], scores: List[float], frame_idx: int) -> Tuple[List[np.ndarray], List[str], List[float]]:
+        """Merge masks with duplicate labels, keeping the best one per label."""
+        if len(masks) <= 1:
+            return masks, labels, scores
+        
+        from collections import defaultdict
+        
+        # Group masks by label
+        label_groups = defaultdict(list)
+        for i, label in enumerate(labels):
+            label_groups[label].append(i)
+        
+        # Process each label group
+        final_masks = []
+        final_labels = []
+        final_scores = []
+        
+        for label, indices in sorted(label_groups.items()):
+            if len(indices) == 1:
+                # No duplicates for this label
+                final_masks.append(masks[indices[0]])
+                final_labels.append(label)
+                final_scores.append(scores[indices[0]])
+            else:
+                # Multiple masks for same label - keep the one with highest score
+                group_scores = [scores[i] for i in indices]
+                best_idx = indices[np.argmax(group_scores)]
+                final_masks.append(masks[best_idx])
+                final_labels.append(label)
+                final_scores.append(scores[best_idx])
+                
+                if self.save_debug_visualizations:
+                    mask_areas = [np.sum(masks[i] > 0) for i in indices]
+                    logger.info(f"Frame {frame_idx}: Merged {len(indices)} '{label}' masks, "
+                              f"kept mask with score {max(group_scores):.3f} and {mask_areas[indices.index(best_idx)]} pixels")
+        
+        return final_masks, final_labels, final_scores
+    
+    def _resolve_cross_label_overlaps(self, masks: List[np.ndarray], labels: List[str], scores: List[float], frame_idx: int) -> Tuple[List[np.ndarray], List[str]]:
+        """Resolve overlaps between masks with different labels (e.g., wall plug vs switch on same object)."""
+        if len(masks) <= 1:
+            return masks, labels
+        
+        # Use provided confidence scores
+        confidence_scores = scores
+        
+        # Track which masks to keep
+        n_masks = len(masks)
+        keep_mask = [True] * n_masks
+        removal_log = []
+        
+        # Compare all pairs of masks
+        for i in range(n_masks):
+            if not keep_mask[i]:
+                continue
+                
+            for j in range(i + 1, n_masks):
+                if not keep_mask[j]:
+                    continue
+                
+                # Skip if same label (already handled by _merge_duplicate_labels)
+                if labels[i] == labels[j]:
+                    continue
+                
+                # Calculate IoU and containment
+                mask_i = masks[i] > 0.5
+                mask_j = masks[j] > 0.5
+                
+                intersection = np.sum(mask_i & mask_j)
+                union = np.sum(mask_i | mask_j)
+                
+                if union == 0:
+                    continue
+                
+                iou = intersection / union
+                
+                # Calculate containment ratios
+                area_i = np.sum(mask_i)
+                area_j = np.sum(mask_j)
+                containment_i_in_j = intersection / area_i if area_i > 0 else 0
+                containment_j_in_i = intersection / area_j if area_j > 0 else 0
+                
+                # Remove if high overlap OR one mask is mostly contained in the other
+                if iou > 0.8 or containment_i_in_j > 0.9 or containment_j_in_i > 0.9:
+                    # Keep the one with higher confidence (larger mask area)
+                    if confidence_scores[i] > confidence_scores[j]:
+                        keep_mask[j] = False
+                        removal_log.append({
+                            'removed': labels[j],
+                            'kept': labels[i],
+                            'iou': iou,
+                            'score_removed': confidence_scores[j],
+                            'score_kept': confidence_scores[i]
+                        })
+                    else:
+                        keep_mask[i] = False
+                        removal_log.append({
+                            'removed': labels[i],
+                            'kept': labels[j],
+                            'iou': iou,
+                            'score_removed': confidence_scores[i],
+                            'score_kept': confidence_scores[j]
+                        })
+                        break  # i is removed, no need to check more pairs with i
+        
+        # Filter masks and labels
+        final_masks = [mask for mask, keep in zip(masks, keep_mask) if keep]
+        final_labels = [label for label, keep in zip(labels, keep_mask) if keep]
+        
+        # Log removals
+        if removal_log and self.save_debug_visualizations:
+            logger.info(f"Frame {frame_idx}: Cross-label deduplication removed {len(removal_log)} masks:")
+            for removal in removal_log:
+                logger.info(f"  - Removed '{removal['removed']}' (score: {removal['score_removed']:.3f}) "
+                          f"in favor of '{removal['kept']}' (score: {removal['score_kept']:.3f}) "
+                          f"with IoU: {removal['iou']:.3f}")
+        
+        return final_masks, final_labels
+    
+    def _resolve_label_conflicts(self, all_proposals: List[Dict], frame_idx: int) -> Tuple[List[np.ndarray], List[str]]:
+        """Resolve label conflicts when multiple labels claim the same physical region."""
+        if not all_proposals:
+            return [], []
+        
+        # Group proposals by mask similarity (IoU > 0.8)
+        groups = []
+        used = set()
+        
+        for i, prop_i in enumerate(all_proposals):
+            if i in used:
+                continue
+                
+            # Start new group
+            group = [i]
+            used.add(i)
+            
+            # Find all similar masks
+            for j, prop_j in enumerate(all_proposals):
+                if j <= i or j in used:
+                    continue
+                    
+                # Calculate IoU between masks
+                intersection = np.sum((prop_i['mask'] > 0.5) & (prop_j['mask'] > 0.5))
+                union = np.sum((prop_i['mask'] > 0.5) | (prop_j['mask'] > 0.5))
+                iou = intersection / union if union > 0 else 0
+                
+                if iou > 0.8:  # High overlap - same physical object
+                    group.append(j)
+                    used.add(j)
+            
+            groups.append(group)
+        
+        # Select best label for each group
+        final_masks = []
+        final_labels = []
+        
+        if self.save_debug_visualizations:
+            logger.info(f"Frame {frame_idx}: Found {len(groups)} mask groups from {len(all_proposals)} proposals")
+        
+        for group_idx, group in enumerate(groups):
+            # Calculate combined score for each proposal in the group
+            best_score = -1
+            best_idx = None
+            
+            group_labels = []
+            for idx in group:
+                prop = all_proposals[idx]
+                
+                # Combined score: grounding confidence * SAM2 quality * coverage ratio
+                combined_score = (prop['grounding_score'] * 
+                                prop['sam2_score'] * 
+                                (0.5 + 0.5 * prop['coverage_ratio']))  # coverage weighted less
+                
+                group_labels.append(f"{prop['label']}({prop['grounding_score']:.2f})")
+                
+                if combined_score > best_score:
+                    best_score = combined_score
+                    best_idx = idx
+            
+            if best_idx is not None:
+                best_prop = all_proposals[best_idx]
+                final_masks.append(best_prop['mask'])
+                final_labels.append(best_prop['label'])
+                
+                if self.save_debug_visualizations and len(group) > 1:
+                    logger.info(f"  Group {group_idx}: Selected '{best_prop['label']}' "
+                              f"(score: {best_score:.3f}) from candidates: {', '.join(group_labels)}")
+        
+        # Apply final mask deduplication to handle any remaining overlaps
+        if len(final_masks) > 1:
+            final_masks, final_labels = self._deduplicate_masks(final_masks, final_labels, frame_idx)
+            if self.save_debug_visualizations:
+                logger.info(f"Frame {frame_idx}: After final deduplication: {len(final_masks)} masks")
+        
+        return final_masks, final_labels
+    
+    def _save_sam2_raw_output(self, image: np.ndarray, masks_proposals: np.ndarray, 
+                             scores: np.ndarray, box: np.ndarray, label: str,
+                             frame_idx: int, box_idx: int):
+        """Save raw SAM2 segmentation proposals before any filtering."""
+        debug_dir = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}" / "sam2_raw"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Find best mask index (highest score)
+        best_idx = np.argmax(scores)
+        
+        # Create a figure showing all proposals
+        h, w = image.shape[:2]
+        combined = np.zeros((h, w * 4, 3), dtype=np.uint8)
+        
+        # Original image with box
+        img_with_box = image.copy()
+        x1, y1, x2, y2 = box.astype(int)
+        cv2.rectangle(img_with_box, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.putText(img_with_box, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+        combined[:, :w] = img_with_box
+        
+        # Show each mask proposal
+        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]  # Red, Green, Blue
+        for i in range(min(3, len(masks_proposals))):
+            mask = masks_proposals[i].squeeze()
+            if isinstance(mask, torch.Tensor):
+                mask = mask.cpu().numpy()
+            
+            # Create colored overlay
+            overlay = image.copy()
+            mask_bool = mask > 0.5
+            overlay[mask_bool] = overlay[mask_bool] * 0.5 + np.array(colors[i]) * 0.5
+            
+            # Add score text and highlight the selected mask
+            score_text = f"Score: {scores[i]:.3f}"
+            if i == best_idx:
+                score_text += " [SELECTED]"
+                # Add border to selected mask
+                cv2.rectangle(overlay, (0, 0), (w-1, h-1), colors[i], 3)
+            cv2.putText(overlay, score_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+            
+            combined[:, (i+1)*w:(i+2)*w] = overlay
+        
+        # Save combined image
+        output_path = debug_dir / f"box_{box_idx:03d}_{label}_proposals.jpg"
+        cv2.imwrite(str(output_path), combined)
+        
+        # Also save individual masks
+        for i in range(len(masks_proposals)):
+            mask = masks_proposals[i].squeeze()
+            if isinstance(mask, torch.Tensor):
+                mask = mask.cpu().numpy()
+            mask_path = debug_dir / f"box_{box_idx:03d}_{label}_mask_{i}_score_{scores[i]:.3f}.png"
+            cv2.imwrite(str(mask_path), (mask * 255).astype(np.uint8))
+    
+    def _save_all_sam2_masks(self, image: np.ndarray, masks: List[np.ndarray], 
+                            labels: List[str], frame_idx: int, stage: str):
+        """Save visualization of all SAM2 masks combined."""
+        debug_dir = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}" / "sam2_combined"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create overlay with all masks
+        overlay = image.copy()
+        h, w = image.shape[:2]
+        
+        # Create instance segmentation map
+        instance_map = np.zeros((h, w), dtype=np.int32)
+        
+        # Apply each mask with a different color
+        for idx, (mask, label) in enumerate(zip(masks, labels)):
+            # Random color for each instance
+            color = np.array([
+                (idx * 67) % 255,
+                (idx * 131) % 255,
+                (idx * 193) % 255
+            ])
+            
+            # Apply mask
+            mask_bool = mask > 0
+            overlay[mask_bool] = overlay[mask_bool] * 0.3 + color * 0.7
+            instance_map[mask_bool] = idx + 1
+            
+            # Add label at centroid
+            if np.any(mask_bool):
+                y_coords, x_coords = np.where(mask_bool)
+                cy, cx = int(np.mean(y_coords)), int(np.mean(x_coords))
+                cv2.putText(overlay, f"{idx}: {label}", (cx-30, cy), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+        
+        # Save overlay
+        output_path = debug_dir / f"all_masks_{stage}.jpg"
+        cv2.imwrite(str(output_path), overlay)
+        
+        # Save instance map
+        instance_path = debug_dir / f"instance_map_{stage}.png"
+        cv2.imwrite(str(instance_path), instance_map.astype(np.uint8))
+        
+        # Save summary
+        summary_path = debug_dir / f"summary_{stage}.txt"
+        with open(summary_path, 'w') as f:
+            f.write(f"SAM2 Segmentation Summary - {stage}\n")
+            f.write(f"Total masks: {len(masks)}\n\n")
+            for idx, (mask, label) in enumerate(zip(masks, labels)):
+                mask_pixels = np.sum(mask > 0)
+                mask_percent = (mask_pixels / (h * w)) * 100
+                f.write(f"{idx}: {label} - {mask_pixels} pixels ({mask_percent:.2f}%)\n")
+    
     def segment_frame_with_boxes(self, image: np.ndarray, boxes: torch.Tensor, 
                                 labels: List[str], frame_idx: int) -> Dict:
         """Use SAM2 to segment objects given bounding boxes."""
@@ -527,6 +952,10 @@ class RealGroundedSAM2Processor:
         
         masks, valid_labels = [], []
         failed_masks = []  # Track failed segmentations
+        valid_scores = []  # Track confidence scores for valid masks
+        
+        # Get grounding scores if available
+        grounding_scores = getattr(self, '_last_grounding_scores', [])
         
         if len(boxes) > 0:
             input_boxes = boxes.cpu().numpy()
@@ -546,42 +975,20 @@ class RealGroundedSAM2Processor:
                         multimask_output=True  # Get 3 mask proposals
                     )
                     
-                    # Select the mask with highest IoU to the bounding box
-                    best_mask_idx = 0
-                    best_iou = 0
+                    # Save raw SAM2 proposals if debug mode
+                    if self.save_debug_visualizations:
+                        self._save_sam2_raw_output(
+                            image, masks_proposals, scores, box, label, 
+                            frame_idx, box_idx
+                        )
                     
-                    # Convert box to mask for IoU calculation
-                    box_mask = np.zeros((h, w), dtype=bool)
-                    x1, y1, x2, y2 = box.astype(int)
-                    box_mask[y1:y2, x1:x2] = True
-                    box_area = (x2 - x1) * (y2 - y1)
-                    
-                    for i in range(len(masks_proposals)):
-                        mask_proposal = masks_proposals[i].squeeze()
-                        
-                        # Ensure mask is boolean numpy array
-                        if isinstance(mask_proposal, torch.Tensor):
-                            mask_proposal = mask_proposal.cpu().numpy()
-                        mask_proposal = mask_proposal.astype(bool)
-                        
-                        # Calculate IoU with bounding box
-                        intersection = np.sum(mask_proposal & box_mask)
-                        union = np.sum(mask_proposal | box_mask)
-                        iou = intersection / union if union > 0 else 0
-                        
-                        # Prefer masks that fit well within the box
-                        mask_area = np.sum(mask_proposal)
-                        containment = intersection / mask_area if mask_area > 0 else 0
-                        
-                        # Combined score: IoU + containment
-                        combined_score = iou + containment
-                        
-                        if combined_score > best_iou:
-                            best_iou = combined_score
-                            best_mask_idx = i
-                    
+                    # Simply select the mask with highest confidence score
+                    best_mask_idx = np.argmax(scores)
                     mask = masks_proposals[best_mask_idx]
                     score = scores[best_mask_idx]
+                    
+                    if self.save_debug_visualizations:
+                        logger.info(f"Frame {frame_idx}: Selected mask {best_mask_idx} for {label} with score {score:.3f}")
                     
                     # Handle mask dimensions properly
                     if mask.ndim == 4:  # (1, 1, H, W)
@@ -619,6 +1026,11 @@ class RealGroundedSAM2Processor:
                     
                     masks.append(mask)
                     valid_labels.append(label)
+                    # Store grounding score if available
+                    if box_idx < len(grounding_scores):
+                        valid_scores.append(grounding_scores[box_idx])
+                    else:
+                        valid_scores.append(mask_pixels)  # Fallback to area
                     
                     if self.save_debug_visualizations:
                         logger.info(f"Frame {frame_idx}: Successfully segmented {label} ({mask_pixels} pixels, {mask_percentage:.1f}%)")
@@ -644,9 +1056,23 @@ class RealGroundedSAM2Processor:
                         f.write(f"Box: {fail['box']}\n")
                     f.write("\n")
         
+        # Save all SAM2 masks before merging duplicates (if enabled)
+        if self.save_debug_visualizations and len(masks) > 0:
+            self._save_all_sam2_masks(image, masks, valid_labels, frame_idx, "before_merge")
+        
+        # Merge duplicate labels - keep best mask per label
+        if len(masks) > 0:
+            masks, valid_labels, valid_scores = self._merge_duplicate_labels(masks, valid_labels, valid_scores, frame_idx)
+            logger.info(f"Frame {frame_idx}: After merging duplicate labels: {len(masks)} masks")
+            
+            # Resolve cross-label overlaps (e.g., wall plug vs switch)
+            masks, valid_labels = self._resolve_cross_label_overlaps(masks, valid_labels, valid_scores, frame_idx)
+            logger.info(f"Frame {frame_idx}: After cross-label deduplication: {len(masks)} masks")
+        
         # Visualize successful masks
         if self.save_debug_visualizations and len(masks) > 0:
             self.visualize_masks(image, masks, valid_labels, frame_idx)
+            self._save_all_sam2_masks(image, masks, valid_labels, frame_idx, "after_merge")
             
             # Log summary
             logger.info(f"Frame {frame_idx}: Segmentation complete - {len(masks)}/{len(boxes)} successful")

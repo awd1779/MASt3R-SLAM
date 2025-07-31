@@ -1,64 +1,76 @@
 Frame 7 - deduped detections
-Total detections: 15
+Total detections: 18
 Confidence threshold: 0.2
 
-1. a table (conf: 0.751)
-   Box: [90.2, 187.0, 184.9, 270.7]
-   Size: 94.7x83.8 (18.5%x30.8% of image)
+1. a sofa (conf: 0.929)
+   Box: [0.2, 217.0, 243.1, 382.9]
+   Size: 242.8x166.0 (47.4%x43.2% of image)
 
-2. a chair (conf: 0.554)
-   Box: [142.0, 185.9, 229.5, 270.5]
-   Size: 87.5x84.6 (17.1%x31.1% of image)
+2. a window (conf: 0.792)
+   Box: [0.0, 84.5, 38.8, 211.1]
+   Size: 38.8x126.5 (7.6%x32.9% of image)
 
-3. a laptop (conf: 0.530)
-   Box: [391.2, 201.6, 487.9, 257.3]
-   Size: 96.7x55.7 (18.9%x20.5% of image)
+3. a candle (conf: 0.581)
+   Box: [258.8, 250.5, 289.6, 286.2]
+   Size: 30.8x35.7 (6.0%x9.3% of image)
 
-4. a bag (conf: 0.491)
-   Box: [326.3, 8.9, 382.6, 29.5]
-   Size: 56.3x20.6 (11.0%x7.6% of image)
+4. a lamp (conf: 0.573)
+   Box: [230.2, 162.4, 297.5, 284.9]
+   Size: 67.3x122.6 (13.1%x31.9% of image)
 
-5. a floor (conf: 0.449)
-   Box: [0.7, 161.6, 292.5, 271.2]
-   Size: 291.8x109.6 (57.0%x40.3% of image)
+5. a wall (conf: 0.549)
+   Box: [34.7, 0.6, 511.8, 383.3]
+   Size: 477.1x382.7 (93.2%x99.7% of image)
 
-6. a rubbish bin (conf: 0.411)
-   Box: [337.3, 204.5, 376.7, 230.0]
-   Size: 39.4x25.5 (7.7%x9.4% of image)
+6. a ceiling (conf: 0.440)
+   Box: [-0.0, -0.0, 278.9, 99.0]
+   Size: 279.0x99.0 (54.5%x25.8% of image)
 
-7. a headset (conf: 0.349)
-   Box: [325.2, 8.1, 383.2, 30.0]
-   Size: 58.0x21.9 (11.3%x8.1% of image)
+7. a wall plug (conf: 0.431)
+   Box: [424.5, 124.2, 473.4, 150.8]
+   Size: 49.0x26.7 (9.6%x6.9% of image)
 
-8. a bottle (conf: 0.316)
-   Box: [320.9, 146.9, 331.4, 174.8]
-   Size: 10.5x27.9 (2.1%x10.3% of image)
+8. a table (conf: 0.411)
+   Box: [188.7, 263.5, 301.5, 378.1]
+   Size: 112.7x114.7 (22.0%x29.9% of image)
 
-9. a chair (conf: 0.302)
-   Box: [0.1, 193.0, 116.9, 271.1]
-   Size: 116.8x78.1 (22.8%x28.7% of image)
+9. a floor (conf: 0.319)
+   Box: [0.2, 312.8, 452.4, 383.9]
+   Size: 452.2x71.1 (88.3%x18.5% of image)
 
-10. a bottle (conf: 0.289)
-   Box: [366.5, 167.0, 377.0, 180.5]
-   Size: 10.5x13.5 (2.0%x5.0% of image)
+10. a book (conf: 0.318)
+   Box: [108.5, 78.6, 237.6, 221.2]
+   Size: 129.0x142.6 (25.2%x37.1% of image)
 
-11. a bottle (conf: 0.282)
-   Box: [384.3, 159.5, 395.8, 182.0]
-   Size: 11.5x22.5 (2.3%x8.3% of image)
+11. a plate (conf: 0.311)
+   Box: [189.0, 290.3, 273.8, 334.8]
+   Size: 84.8x44.5 (16.6%x11.6% of image)
 
-12. a container (conf: 0.280)
-   Box: [302.8, 1.7, 510.9, 269.7]
-   Size: 208.1x268.0 (40.6%x98.5% of image)
+12. a wall plug (conf: 0.308)
+   Box: [417.8, 116.8, 481.3, 159.2]
+   Size: 63.5x42.4 (12.4%x11.0% of image)
 
-13. a bottle (conf: 0.277)
-   Box: [336.6, 162.5, 343.7, 176.9]
-   Size: 7.1x14.4 (1.4%x5.3% of image)
+13. a stool (conf: 0.305)
+   Box: [188.7, 290.3, 274.4, 376.2]
+   Size: 85.8x85.9 (16.7%x22.4% of image)
 
-14. a monitor (conf: 0.266)
-   Box: [449.2, 146.1, 511.1, 189.8]
-   Size: 61.8x43.7 (12.1%x16.1% of image)
+14. a rug (conf: 0.304)
+   Box: [181.6, 327.9, 414.1, 383.9]
+   Size: 232.5x56.0 (45.4%x14.6% of image)
 
-15. monitor (conf: 0.253)
-   Box: [315.3, 2.4, 511.3, 117.6]
-   Size: 196.0x115.1 (38.3%x42.3% of image)
+15. a plate (conf: 0.292)
+   Box: [223.8, 264.0, 301.0, 296.1]
+   Size: 77.2x32.1 (15.1%x8.4% of image)
+
+16. a cushion (conf: 0.276)
+   Box: [28.9, 224.6, 94.6, 272.2]
+   Size: 65.7x47.6 (12.8%x12.4% of image)
+
+17. a door (conf: 0.266)
+   Box: [234.4, 0.2, 511.9, 383.8]
+   Size: 277.5x383.6 (54.2%x99.9% of image)
+
+18. a floor (conf: 0.265)
+   Box: [0.0, 281.2, 455.5, 383.9]
+   Size: 455.5x102.7 (89.0%x26.8% of image)
 

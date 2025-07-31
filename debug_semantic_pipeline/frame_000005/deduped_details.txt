@@ -1,0 +1,68 @@
+Frame 5 - deduped detections
+Total detections: 16
+Confidence threshold: 0.2
+
+1. a sofa (conf: 0.906)
+   Box: [0.0, 299.2, 147.8, 384.0]
+   Size: 147.8x84.8 (28.9%x22.1% of image)
+
+2. a table (conf: 0.770)
+   Box: [123.6, 339.9, 210.9, 384.0]
+   Size: 87.3x44.1 (17.1%x11.5% of image)
+
+3. a ceiling (conf: 0.533)
+   Box: [-0.0, 0.0, 512.0, 78.1]
+   Size: 512.0x78.1 (100.0%x20.3% of image)
+
+4. a vase (conf: 0.525)
+   Box: [166.0, 337.9, 198.9, 381.2]
+   Size: 32.8x43.3 (6.4%x11.3% of image)
+
+5. a wall (conf: 0.501)
+   Box: [0.0, 26.6, 512.0, 384.1]
+   Size: 512.0x357.5 (100.0%x93.1% of image)
+
+6. a window (conf: 0.478)
+   Box: [400.2, 111.9, 512.0, 383.8]
+   Size: 111.8x271.9 (21.8%x70.8% of image)
+
+7. a lamp (conf: 0.447)
+   Box: [132.3, 236.7, 210.3, 382.3]
+   Size: 78.0x145.6 (15.2%x37.9% of image)
+
+8. a pillar (conf: 0.396)
+   Box: [499.2, 117.1, 512.0, 383.8]
+   Size: 12.9x266.7 (2.5%x69.5% of image)
+
+9. a switch (conf: 0.395)
+   Box: [316.3, 207.8, 351.4, 229.5]
+   Size: 35.2x21.7 (6.9%x5.7% of image)
+
+10. a vent (conf: 0.388)
+   Box: [238.9, 31.0, 330.0, 55.6]
+   Size: 91.1x24.6 (17.8%x6.4% of image)
+
+11. a blinds (conf: 0.327)
+   Box: [405.2, 121.5, 481.3, 384.0]
+   Size: 76.1x262.5 (14.9%x68.4% of image)
+
+12. a lamp (conf: 0.322)
+   Box: [133.4, 238.0, 205.9, 303.1]
+   Size: 72.5x65.1 (14.2%x16.9% of image)
+
+13. a wall plug (conf: 0.305)
+   Box: [309.5, 201.7, 359.0, 235.7]
+   Size: 49.5x33.9 (9.7%x8.8% of image)
+
+14. a cushion (conf: 0.274)
+   Box: [0.9, 328.3, 71.3, 384.0]
+   Size: 70.4x55.7 (13.7%x14.5% of image)
+
+15. a vent (conf: 0.263)
+   Box: [229.3, 22.7, 340.7, 65.0]
+   Size: 111.4x42.2 (21.7%x11.0% of image)
+
+16. book (conf: 0.252)
+   Box: [-0.0, 129.4, 141.5, 287.0]
+   Size: 141.6x157.6 (27.6%x41.0% of image)
+

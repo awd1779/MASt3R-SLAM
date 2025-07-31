@@ -8,8 +8,13 @@ semantic_segmentation:
   
   # Grounded-SAM2 settings - more permissive for better detection
   grounded_sam2:
+    # Model selection - use best available models
+    model_type: "hiera_large"  # Best quality SAM2 model (224.4M params) - AVAILABLE
+    grounding_model: "grounding_dino_swin-b"  # Best available grounding model (88M params)
+    
     confidence_threshold: 0.20  # Reduced from 0.30 to detect more objects
     text_threshold: 0.20  # Reduced from 0.25 for better detection
+    deduplication_iou_threshold: 0.7  # Lower threshold for bbox deduplication (was 0.95)
     # Label filtering parameters to remove empty detections
     filter_empty_labels: true  # Enable filtering of empty labels
     min_phrase_length: 2       # Require at least 2 characters (filters "" and "a")
@@ -26,10 +31,14 @@ object_tracking:
   global_search_tracks: 50  # Increased from 20 to search more candidates
   
   # 3D Tracking parameters - more permissive for better matching
-  geometric_iou_threshold: 0.15  # Reduced from 0.2 for easier matching
-  centroid_distance_threshold: 1.0  # Increased from 0.8m for larger objects
+  geometric_iou_threshold: 0.1  # Further reduced for partial object matching
+  centroid_distance_threshold: 1.5  # Increased for furniture and partial objects
   max_lost_frames: 50  # Increased from 30 for better track persistence
   min_observations: 1
+  
+  # Partial object matching parameters
+  partial_object_containment_threshold: 0.7  # If 70% contained, consider same object
+  early_observation_growth_factor: 5.0  # Allow 5x size growth for new tracks
   
   # Matching weights - adjusted for better stability
   weight_iou: 0.4  # Reduced from 0.5
@@ -52,10 +61,26 @@ object_tracking:
   # Track management
   max_tracks: 2000  # Increased from 1000
   
+  # World-centric tracking parameters
+  use_world_coordinates: true
+  
+  # World-space distance thresholds (meters)
+  world_distance_thresholds:
+    default: 0.5      # Increased from 0.3
+    furniture: 1.0    # Increased from 0.5 - chair, table, sofa, bed, desk
+    large: 2.0        # Increased from 1.0 - wall, floor, ceiling
+    small: 0.3        # Increased from 0.2 - bottle, cup, mouse, keyboard
+  
+  # Position stability monitoring
+  max_position_variance: 0.2  # Flag tracks that move >20cm in world space
+  position_variance_warning: 0.1  # Warn if objects move >10cm
+  
   # Debug and logging
   save_tracking_decisions: true
   save_tracking_visualizations: true
   visualization_interval: 10
   log_tracking_stats: true
   stats_interval: 30
+  log_world_positions: true
+  world_position_interval: 10  # Log world positions every N frames
   debug_mode: false  # Set to false for better performance

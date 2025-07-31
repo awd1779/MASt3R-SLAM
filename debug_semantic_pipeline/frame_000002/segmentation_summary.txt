@@ -1,0 +1,15 @@
+Frame 2 - Segmentation Results
+Total masks: 12
+
+1. a basket: 474 pixels (0.24% of image)
+2. a book: 415 pixels (0.21% of image)
+3. a ceiling: 35450 pixels (18.03% of image)
+4. a door: 17454 pixels (8.88% of image)
+5. a plate: 478 pixels (0.24% of image)
+6. a rug: 8982 pixels (4.57% of image)
+7. a table: 17593 pixels (8.95% of image)
+8. a vase: 999 pixels (0.51% of image)
+9. a vent: 2017 pixels (1.03% of image)
+10. a wall: 70523 pixels (35.87% of image)
+11. a wall plug: 38 pixels (0.02% of image)
+12. a window: 7712 pixels (3.92% of image)

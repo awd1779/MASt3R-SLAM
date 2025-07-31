@@ -14,6 +14,7 @@ from mast3r_slam.bbox_3d_generic import (
     BBox3DConfig,
     create_generic_3d_bbox
 )
+from mast3r_slam.label_based_tracker import LabelBasedTracker
 
 logger = logging.getLogger('mast3r_slam.geometric_3d_tracker_global')
 
@@ -49,7 +50,7 @@ class Geometric3DTrackerGlobal(Geometric3DTracker):
         # Sort detections by confidence/size
         sorted_detections = sorted(
             detections.items(),
-            key=lambda x: x[1]['bbox']['confidence'],
+            key=lambda x: x[1].get('bbox_cam', {}).get('confidence', 0.0),
             reverse=True
         )
         
@@ -57,31 +58,34 @@ class Geometric3DTrackerGlobal(Geometric3DTracker):
             best_track_id = None
             best_score = 0.0
             
-            # Get candidate tracks - both recent and same-label tracks
-            candidate_tracks = self._get_candidate_tracks(
-                detection['label'], 
-                frame_id, 
-                used_tracks
-            )
+            # No hardcoded unique object handling - let geometric matching handle everything
             
-            # Try to match with each candidate
-            for track_id in candidate_tracks:
-                track = self.tracked_objects[track_id]
-                
-                # Compute matching score
-                score = self._compute_3d_matching_score(
-                    detection['bbox'],
-                    track,
-                    detection['label']
+            # If not forced match, get candidate tracks - both recent and same-label tracks
+            if best_track_id is None:
+                candidate_tracks = self._get_candidate_tracks(
+                    detection['label'], 
+                    frame_id, 
+                    used_tracks
                 )
                 
-                # Boost score for recently seen tracks
-                recency_boost = self._compute_recency_boost(track, frame_id)
-                score *= recency_boost
-                
-                if score > best_score and score > self.iou_threshold_3d:
-                    best_score = score
-                    best_track_id = track_id
+                # Try to match with each candidate
+                for track_id in candidate_tracks:
+                    track = self.tracked_objects[track_id]
+                    
+                    # Compute matching score using robust method
+                    score = self._compute_robust_matching_score(
+                        detection,
+                        track,
+                        frame_id
+                    )
+                    
+                    # Boost score for recently seen tracks
+                    recency_boost = self._compute_recency_boost(track, frame_id)
+                    score *= recency_boost
+                    
+                    if score > best_score and score > self.iou_threshold_3d:
+                        best_score = score
+                        best_track_id = track_id
             
             # Assign or create new track
             if best_track_id is not None:
@@ -89,7 +93,7 @@ class Geometric3DTrackerGlobal(Geometric3DTracker):
                 used_tracks.add(best_track_id)
                 
                 track = self.tracked_objects[best_track_id]
-                track.update_geometry(detection['bbox'], frame_id)
+                track.update_geometry(detection['bbox_cam'], detection['bbox_world'], frame_id)
                 
                 logger.debug(f"Matched {detection['label']} to track {best_track_id} "
                            f"(score: {best_score:.3f})")
@@ -104,11 +108,13 @@ class Geometric3DTrackerGlobal(Geometric3DTracker):
                     first_seen_frame=frame_id,
                     last_seen_frame=frame_id
                 )
-                new_track.update_geometry(detection['bbox'], frame_id)
+                new_track.update_geometry(detection['bbox_cam'], detection['bbox_world'], frame_id)
                 
                 self.tracked_objects[new_track_id] = new_track
                 assignments[instance_id] = new_track_id
                 self.track_last_seen[new_track_id] = frame_id
+                
+                # No hardcoded unique object registration
                 
                 logger.info(f"Created new track {new_track_id} for {detection['label']}")
         

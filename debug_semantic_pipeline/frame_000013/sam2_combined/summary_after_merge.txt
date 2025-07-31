@@ -1,0 +1,18 @@
+SAM2 Segmentation Summary - after_merge
+Total masks: 15
+
+0: a basket - 2255 pixels (1.15%)
+1: a blinds - 19589 pixels (9.96%)
+2: a book - 1635 pixels (0.83%)
+3: a candle - 263 pixels (0.13%)
+4: a ceiling - 37664 pixels (19.16%)
+5: a chair - 4009 pixels (2.04%)
+6: a cushion - 6871 pixels (3.49%)
+7: a indoor plant - 1716 pixels (0.87%)
+8: a lamp - 1069 pixels (0.54%)
+9: a rug - 11669 pixels (5.94%)
+10: a sofa - 19908 pixels (10.13%)
+11: a stool - 4347 pixels (2.21%)
+12: a table - 9924 pixels (5.05%)
+13: a wall - 18973 pixels (9.65%)
+14: a wall plug - 166 pixels (0.08%)

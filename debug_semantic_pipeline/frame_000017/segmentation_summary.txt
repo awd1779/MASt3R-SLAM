@@ -1,0 +1,20 @@
+Frame 17 - Segmentation Results
+Total masks: 17
+
+1. a blinds: 32660 pixels (16.61% of image)
+2. a cabinet: 5961 pixels (3.03% of image)
+3. a candle: 106 pixels (0.05% of image)
+4. a ceiling: 31541 pixels (16.04% of image)
+5. a chair: 8093 pixels (4.12% of image)
+6. a cushion: 2386 pixels (1.21% of image)
+7. a floor: 4937 pixels (2.51% of image)
+8. a indoor plant: 6662 pixels (3.39% of image)
+9. a lamp: 2132 pixels (1.08% of image)
+10. a plug: 178 pixels (0.09% of image)
+11. a rug: 16500 pixels (8.39% of image)
+12. a sofa: 10700 pixels (5.44% of image)
+13. a stool: 10329 pixels (5.25% of image)
+14. a table: 4919 pixels (2.50% of image)
+15. a vent: 526 pixels (0.27% of image)
+16. a wall: 36840 pixels (18.74% of image)
+17. a window: 10746 pixels (5.47% of image)

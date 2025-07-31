@@ -443,11 +443,43 @@ class Generic3DBoundingBox:
             maxs = bbox['max'].unsqueeze(0)
             rand = torch.rand(n_samples, 3, device=mins.device)
             return mins + rand * (maxs - mins)
-        else:
-            # For OBB, sample in local space then transform
+        elif bbox['type'] == 'obb' and 'rotation' in bbox:
+            # For OBB with rotation, sample in local space then transform
             dims = bbox['dimensions']
+            center = bbox['center']
+            
+            # Handle homogeneous coordinates if present
+            if center.shape[-1] == 4:
+                center = center[..., :3]
+            
             rand = (torch.rand(n_samples, 3, device=dims.device) - 0.5) * dims
-            return torch.mm(rand, bbox['rotation'].T) + bbox['center']
+            return torch.mm(rand, bbox['rotation'].T) + center
+        else:
+            # Fallback: treat as AABB around center
+            dims = bbox['dimensions']
+            center = bbox['center']
+            
+            # Handle homogeneous coordinates if present
+            if center.shape[-1] == 4:
+                # Extract only x, y, z (drop homogeneous coordinate)
+                center = center[..., :3]
+            
+            # Ensure dimensions is properly shaped
+            if dims.dim() == 0:
+                # If dims is a scalar, expand to 3D
+                dims = dims.unsqueeze(0).expand(3)
+            elif dims.dim() == 1 and dims.shape[0] == 1:
+                # If dims is (1,), expand to (3,)
+                dims = dims.expand(3)
+            
+            # Generate random points
+            rand = (torch.rand(n_samples, 3, device=dims.device) - 0.5) * dims.unsqueeze(0)
+            
+            # Ensure center is properly shaped
+            if center.dim() == 1:
+                center = center.unsqueeze(0)  # Make it (1, 3)
+            
+            return rand + center.expand(n_samples, -1)
     
     def _points_in_bbox(self, points: torch.Tensor, bbox: Dict) -> torch.Tensor:
         """Check which points are inside bbox."""
@@ -455,11 +487,22 @@ class Generic3DBoundingBox:
             above_min = torch.all(points >= bbox['min'], dim=1)
             below_max = torch.all(points <= bbox['max'], dim=1)
             return above_min & below_max
-        else:
+        elif bbox['type'] == 'obb' and 'rotation' in bbox:
             # Transform to local space
-            local = torch.mm(points - bbox['center'], bbox['rotation'])
+            center = bbox['center']
+            if center.shape[-1] == 4:
+                center = center[..., :3]
+            local = torch.mm(points - center, bbox['rotation'])
             half_dims = bbox['dimensions'] / 2
             return torch.all(torch.abs(local) <= half_dims, dim=1)
+        else:
+            # Fallback: treat as AABB around center
+            center = bbox['center']
+            if center.shape[-1] == 4:
+                center = center[..., :3]
+            half_dims = bbox['dimensions'] / 2
+            local = torch.abs(points - center)
+            return torch.all(local <= half_dims, dim=1)
 
 
 # Convenience function

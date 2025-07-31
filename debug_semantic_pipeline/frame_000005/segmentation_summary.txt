@@ -1,0 +1,13 @@
+Frame 5 - Segmentation Results
+Total masks: 10
+
+1. a ceiling: 25572 pixels (13.01% of image)
+2. a cushion: 2426 pixels (1.23% of image)
+3. a lamp: 3798 pixels (1.93% of image)
+4. a sofa: 6975 pixels (3.55% of image)
+5. a switch: 615 pixels (0.31% of image)
+6. a table: 2882 pixels (1.47% of image)
+7. a vent: 1048 pixels (0.53% of image)
+8. a wall: 99202 pixels (50.46% of image)
+9. a window: 29557 pixels (15.03% of image)
+10. book: 20097 pixels (10.22% of image)

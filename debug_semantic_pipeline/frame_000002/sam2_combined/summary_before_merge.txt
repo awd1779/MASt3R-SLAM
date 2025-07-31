@@ -1,0 +1,17 @@
+SAM2 Segmentation Summary - before_merge
+Total masks: 14
+
+0: a table - 17593 pixels (8.95%)
+1: a window - 7712 pixels (3.92%)
+2: a door - 17454 pixels (8.88%)
+3: a vase - 999 pixels (0.51%)
+4: a ceiling - 35450 pixels (18.03%)
+5: a rug - 8982 pixels (4.57%)
+6: a wall - 70523 pixels (35.87%)
+7: a plate - 478 pixels (0.24%)
+8: a vent - 2017 pixels (1.03%)
+9: a basket - 474 pixels (0.24%)
+10: a book - 415 pixels (0.21%)
+11: a wall plug - 38 pixels (0.02%)
+12: a pillar - 31758 pixels (16.15%)
+13: a wall - 57 pixels (0.03%)

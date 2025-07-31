@@ -284,6 +284,7 @@ class DenseSemanticReconstructorTrackedV2:
         unique_labels, counts = np.unique(all_labels, return_counts=True)
         label_stats = {}
         track_stats = {}
+        combined_stats = {}  # Combined statistics for summary
         
         for label_id, count in zip(unique_labels, counts):
             if label_id in global_track_mapping:
@@ -293,6 +294,11 @@ class DenseSemanticReconstructorTrackedV2:
                     track_stats[track_label] = {'count': 0, 'tracks': []}
                 track_stats[track_label]['count'] += count
                 track_stats[track_label]['tracks'].append(label_id)
+                
+                # Also add to combined stats
+                if track_label not in combined_stats:
+                    combined_stats[track_label] = {'count': 0, 'percentage': 0.0}
+                combined_stats[track_label]['count'] += count
             else:
                 # Regular label statistic
                 label_name = global_label_mapping.get(label_id, f"unknown_{label_id}")
@@ -301,6 +307,15 @@ class DenseSemanticReconstructorTrackedV2:
                     'count': int(count),
                     'percentage': percentage
                 }
+                
+                # Also add to combined stats
+                if label_name not in combined_stats:
+                    combined_stats[label_name] = {'count': 0, 'percentage': 0.0}
+                combined_stats[label_name]['count'] += int(count)
+        
+        # Calculate percentages for combined stats
+        for label in combined_stats:
+            combined_stats[label]['percentage'] = (combined_stats[label]['count'] / len(all_labels)) * 100
         
         # Summarize track statistics
         logger.info("\nTrack Statistics:")
@@ -331,8 +346,9 @@ class DenseSemanticReconstructorTrackedV2:
             'num_keyframes': processed_keyframes,
             'label_mapping': global_label_mapping,
             'track_mapping': global_track_mapping,
-            'label_stats': label_stats,
-            'track_stats': track_stats
+            'label_stats': combined_stats,  # Use combined stats for summary
+            'track_stats': track_stats,
+            'detailed_label_stats': label_stats  # Keep original for detailed analysis
         }
     
     def save_ply_tracked(self, filename: str,

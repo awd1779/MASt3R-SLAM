@@ -1,74 +1,82 @@
-Filtered 18 detections:
+Filtered 20 detections:
 
-Vocabulary: coffee cup
-Detected: '' (score: 0.209)
+Vocabulary: book
+Detected: '' (score: 0.241)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: candle
+Detected: '' (score: 0.224)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: candle
+Detected: '' (score: 0.245)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: candle
+Detected: '' (score: 0.201)
 Reason: Empty label (length=0, area=0.01)
 
-Vocabulary: coffee cup
-Detected: '' (score: 0.222)
-Reason: Empty label (length=0, area=0.00)
+Vocabulary: door
+Detected: '' (score: 0.243)
+Reason: Empty label (length=0, area=0.64)
 
-Vocabulary: container
-Detected: '' (score: 0.237)
-Reason: Empty label (length=0, area=0.00)
+Vocabulary: door
+Detected: '' (score: 0.209)
+Reason: Empty label (length=0, area=0.04)
 
-Vocabulary: container
-Detected: '' (score: 0.238)
-Reason: Empty label (length=0, area=0.00)
+Vocabulary: indoor plant
+Detected: '' (score: 0.227)
+Reason: Empty label (length=0, area=0.02)
 
-Vocabulary: container
+Vocabulary: indoor plant
+Detected: '' (score: 0.236)
+Reason: Empty label (length=0, area=0.08)
+
+Vocabulary: pillar
 Detected: '' (score: 0.205)
-Reason: Empty label (length=0, area=0.75)
-
-Vocabulary: container
-Detected: '' (score: 0.208)
-Reason: Empty label (length=0, area=0.01)
-
-Vocabulary: floor
-Detected: '' (score: 0.208)
-Reason: Empty label (length=0, area=0.20)
-
-Vocabulary: floor
-Detected: '' (score: 0.228)
-Reason: Empty label (length=0, area=0.22)
-
-Vocabulary: headset
-Detected: '' (score: 0.216)
-Reason: Empty label (length=0, area=0.01)
-
-Vocabulary: headset
-Detected: '' (score: 0.248)
-Reason: Empty label (length=0, area=0.00)
-
-Vocabulary: headset
-Detected: '' (score: 0.209)
-Reason: Empty label (length=0, area=0.00)
-
-Vocabulary: headset
-Detected: '' (score: 0.219)
 Reason: Empty label (length=0, area=0.07)
 
-Vocabulary: monitor
-Detected: '' (score: 0.233)
-Reason: Empty label (length=0, area=0.02)
+Vocabulary: pillar
+Detected: '' (score: 0.209)
+Reason: Empty label (length=0, area=0.35)
 
-Vocabulary: mouse
-Detected: '' (score: 0.229)
-Reason: Empty label (length=0, area=0.00)
+Vocabulary: pillar
+Detected: '' (score: 0.211)
+Reason: Empty label (length=0, area=0.64)
 
-Vocabulary: mouse
-Detected: '' (score: 0.247)
-Reason: Empty label (length=0, area=0.02)
+Vocabulary: plate
+Detected: '' (score: 0.204)
+Reason: Empty label (length=0, area=0.11)
 
-Vocabulary: mouse
-Detected: '' (score: 0.207)
-Reason: Empty label (length=0, area=0.00)
+Vocabulary: plate
+Detected: '' (score: 0.213)
+Reason: Empty label (length=0, area=0.01)
 
-Vocabulary: rubbish bin
+Vocabulary: rug
+Detected: '' (score: 0.215)
+Reason: Empty label (length=0, area=0.21)
+
+Vocabulary: stool
+Detected: '' (score: 0.217)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: stool
+Detected: '' (score: 0.206)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: switch
 Detected: '' (score: 0.249)
 Reason: Empty label (length=0, area=0.00)
 
-Vocabulary: rubbish bin
-Detected: '' (score: 0.209)
-Reason: Empty label (length=0, area=0.20)
+Vocabulary: switch
+Detected: '' (score: 0.219)
+Reason: Empty label (length=0, area=0.11)
+
+Vocabulary: vase
+Detected: '' (score: 0.250)
+Reason: Empty label (length=0, area=0.11)
+
+Vocabulary: wall plug
+Detected: '' (score: 0.241)
+Reason: Empty label (length=0, area=0.01)
 

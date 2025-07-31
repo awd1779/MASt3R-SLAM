@@ -1,0 +1,168 @@
+Frame 2 - grounding detections
+Total detections: 41
+Confidence threshold: 0.2
+
+1. a basket (conf: 0.436)
+   Box: [258.4, 268.6, 279.2, 300.4]
+   Size: 20.8x31.8 (4.1%x8.3% of image)
+
+2. a basket (conf: 0.285)
+   Box: [394.2, 261.7, 427.9, 309.0]
+   Size: 33.7x47.3 (6.6%x12.3% of image)
+
+3. a blanket (conf: 0.464)
+   Box: [222.3, 282.9, 465.1, 383.5]
+   Size: 242.9x100.6 (47.4%x26.2% of image)
+
+4. a blanket (conf: 0.353)
+   Box: [349.3, 295.3, 393.1, 310.1]
+   Size: 43.8x14.9 (8.5%x3.9% of image)
+
+5. a blinds (conf: 0.817)
+   Box: [281.4, 167.1, 377.4, 253.1]
+   Size: 96.0x86.0 (18.7%x22.4% of image)
+
+6. a book (conf: 0.378)
+   Box: [221.9, 281.5, 465.2, 383.7]
+   Size: 243.3x102.2 (47.5%x26.6% of image)
+
+7. a book (conf: 0.343)
+   Box: [277.5, 282.7, 306.8, 303.3]
+   Size: 29.2x20.6 (5.7%x5.4% of image)
+
+8. a cabinet (conf: 0.806)
+   Box: [222.4, 283.9, 465.0, 383.6]
+   Size: 242.6x99.7 (47.4%x26.0% of image)
+
+9. a candle (conf: 0.353)
+   Box: [394.5, 261.4, 427.9, 308.8]
+   Size: 33.4x47.4 (6.5%x12.3% of image)
+
+10. a candle (conf: 0.377)
+   Box: [393.4, 248.5, 429.2, 309.6]
+   Size: 35.8x61.1 (7.0%x15.9% of image)
+
+11. a ceiling (conf: 0.610)
+   Box: [0.0, 0.1, 512.0, 107.6]
+   Size: 512.0x107.6 (100.0%x28.0% of image)
+
+12. a chair (conf: 0.465)
+   Box: [221.6, 282.6, 466.2, 383.7]
+   Size: 244.6x101.0 (47.8%x26.3% of image)
+
+13. a cushion (conf: 0.389)
+   Box: [221.8, 282.0, 465.7, 383.6]
+   Size: 243.9x101.5 (47.6%x26.4% of image)
+
+14. a cushion (conf: 0.276)
+   Box: [393.9, 263.2, 428.4, 309.4]
+   Size: 34.5x46.2 (6.7%x12.0% of image)
+
+15. a cushion (conf: 0.266)
+   Box: [348.8, 295.1, 393.6, 310.5]
+   Size: 44.8x15.5 (8.7%x4.0% of image)
+
+16. a door (conf: 0.774)
+   Box: [52.7, 134.0, 133.9, 383.3]
+   Size: 81.2x249.4 (15.9%x64.9% of image)
+
+17. a floor (conf: 0.572)
+   Box: [74.2, 328.0, 511.7, 384.0]
+   Size: 437.4x55.9 (85.4%x14.6% of image)
+
+18. a indoor plant (conf: 0.381)
+   Box: [393.5, 248.9, 428.9, 309.5]
+   Size: 35.4x60.5 (6.9%x15.8% of image)
+
+19. a lamp (conf: 0.564)
+   Box: [393.3, 248.9, 429.5, 309.8]
+   Size: 36.1x60.9 (7.1%x15.9% of image)
+
+20. a lamp (conf: 0.285)
+   Box: [257.9, 267.4, 279.7, 300.7]
+   Size: 21.8x33.3 (4.3%x8.7% of image)
+
+21. a pillar (conf: 0.372)
+   Box: [52.2, 134.4, 134.0, 383.0]
+   Size: 81.8x248.6 (16.0%x64.8% of image)
+
+22. a pillar (conf: 0.269)
+   Box: [0.2, 112.2, 135.6, 383.5]
+   Size: 135.4x271.3 (26.4%x70.7% of image)
+
+23. a plant stand (conf: 0.275)
+   Box: [392.7, 248.7, 430.0, 309.8]
+   Size: 37.3x61.1 (7.3%x15.9% of image)
+
+24. a plant stand (conf: 0.412)
+   Box: [221.6, 281.2, 466.3, 383.6]
+   Size: 244.8x102.4 (47.8%x26.7% of image)
+
+25. a plant stand (conf: 0.275)
+   Box: [217.7, 249.2, 470.5, 383.5]
+   Size: 252.8x134.3 (49.4%x35.0% of image)
+
+26. a plate (conf: 0.468)
+   Box: [349.1, 294.9, 393.3, 310.6]
+   Size: 44.2x15.7 (8.6%x4.1% of image)
+
+27. a pot (conf: 0.615)
+   Box: [394.0, 261.4, 428.4, 309.3]
+   Size: 34.4x47.9 (6.7%x12.5% of image)
+
+28. a rug (conf: 0.572)
+   Box: [74.9, 328.6, 511.7, 384.0]
+   Size: 436.8x55.4 (85.3%x14.4% of image)
+
+29. a sofa (conf: 0.815)
+   Box: [221.3, 282.1, 466.0, 383.7]
+   Size: 244.7x101.5 (47.8%x26.4% of image)
+
+30. a stool (conf: 0.684)
+   Box: [221.5, 282.5, 466.2, 383.7]
+   Size: 244.7x101.2 (47.8%x26.4% of image)
+
+31. a switch (conf: 0.346)
+   Box: [222.2, 281.6, 465.4, 383.7]
+   Size: 243.3x102.0 (47.5%x26.6% of image)
+
+32. a switch (conf: 0.286)
+   Box: [258.3, 267.6, 279.2, 299.6]
+   Size: 20.9x32.1 (4.1%x8.3% of image)
+
+33. a table (conf: 0.913)
+   Box: [222.2, 282.8, 465.2, 383.6]
+   Size: 243.0x100.8 (47.5%x26.3% of image)
+
+34. a vase (conf: 0.700)
+   Box: [394.1, 261.0, 428.3, 309.3]
+   Size: 34.2x48.3 (6.7%x12.6% of image)
+
+35. a vent (conf: 0.467)
+   Box: [9.7, 18.7, 119.3, 73.8]
+   Size: 109.7x55.1 (21.4%x14.3% of image)
+
+36. a vent (conf: 0.252)
+   Box: [280.4, 166.1, 378.7, 254.3]
+   Size: 98.4x88.3 (19.2%x23.0% of image)
+
+37. a wall (conf: 0.472)
+   Box: [133.5, 84.7, 512.1, 365.6]
+   Size: 378.6x281.0 (73.9%x73.2% of image)
+
+38. a wall plug (conf: 0.277)
+   Box: [200.6, 251.6, 207.2, 259.6]
+   Size: 6.6x8.0 (1.3%x2.1% of image)
+
+39. a wall (conf: 0.258)
+   Box: [198.2, 249.5, 209.7, 262.4]
+   Size: 11.5x12.9 (2.2%x3.3% of image)
+
+40. a wall (conf: 0.255)
+   Box: [222.1, 282.7, 465.9, 383.8]
+   Size: 243.8x101.1 (47.6%x26.3% of image)
+
+41. a window (conf: 0.885)
+   Box: [280.8, 166.5, 378.2, 253.7]
+   Size: 97.4x87.2 (19.0%x22.7% of image)
+

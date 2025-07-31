@@ -1,68 +1,56 @@
 Frame 20 - deduped detections
-Total detections: 16
+Total detections: 13
 Confidence threshold: 0.2
 
-1. a chair (conf: 0.643)
-   Box: [272.2, 145.1, 304.7, 176.9]
-   Size: 32.5x31.8 (6.4%x11.7% of image)
+1. a chair (conf: 0.707)
+   Box: [57.2, 204.3, 242.0, 383.6]
+   Size: 184.8x179.3 (36.1%x46.7% of image)
 
-2. a table (conf: 0.635)
-   Box: [279.7, 143.9, 311.2, 171.5]
-   Size: 31.5x27.6 (6.2%x10.1% of image)
+2. a blinds (conf: 0.669)
+   Box: [0.1, 0.3, 276.6, 219.8]
+   Size: 276.5x219.5 (54.0%x57.2% of image)
 
-3. a bag (conf: 0.554)
-   Box: [307.5, 89.9, 328.6, 172.2]
-   Size: 21.1x82.2 (4.1%x30.2% of image)
+3. a book (conf: 0.593)
+   Box: [503.3, -0.1, 512.0, 239.7]
+   Size: 8.7x239.8 (1.7%x62.4% of image)
 
-4. a headset (conf: 0.422)
-   Box: [306.4, 89.4, 329.8, 175.5]
-   Size: 23.4x86.1 (4.6%x31.7% of image)
+4. a floor (conf: 0.580)
+   Box: [6.3, 279.5, 354.0, 383.8]
+   Size: 347.6x104.4 (67.9%x27.2% of image)
 
-5. a floor (conf: 0.410)
-   Box: [1.8, 149.8, 476.3, 270.4]
-   Size: 474.4x120.7 (92.7%x44.4% of image)
+5. a wall (conf: 0.477)
+   Box: [275.5, 0.2, 512.0, 319.1]
+   Size: 236.5x318.9 (46.2%x83.0% of image)
 
-6. a bottle (conf: 0.337)
-   Box: [307.8, 90.2, 328.5, 176.6]
-   Size: 20.6x86.5 (4.0%x31.8% of image)
+6. a ceiling (conf: 0.406)
+   Box: [1.6, -0.1, 389.2, 70.8]
+   Size: 387.6x70.9 (75.7%x18.5% of image)
 
-7. a rubbish bin (conf: 0.328)
-   Box: [2.9, 67.5, 110.2, 180.7]
-   Size: 107.3x113.2 (21.0%x41.6% of image)
+7. a blanket (conf: 0.388)
+   Box: [388.1, 266.4, 511.9, 383.9]
+   Size: 123.8x117.6 (24.2%x30.6% of image)
 
-8. a monitor (conf: 0.327)
-   Box: [320.7, 91.4, 336.4, 117.5]
-   Size: 15.7x26.1 (3.1%x9.6% of image)
+8. a rug (conf: 0.346)
+   Box: [233.8, 342.1, 321.6, 384.0]
+   Size: 87.8x41.9 (17.1%x10.9% of image)
 
-9. a container (conf: 0.320)
-   Box: [5.2, 185.7, 263.7, 270.1]
-   Size: 258.5x84.4 (50.5%x31.0% of image)
+9. a indoor plant (conf: 0.331)
+   Box: [-0.0, 208.2, 31.3, 384.0]
+   Size: 31.4x175.8 (6.1%x45.8% of image)
 
-10. a floor (conf: 0.313)
-   Box: [78.0, 150.7, 474.7, 270.1]
-   Size: 396.7x119.4 (77.5%x43.9% of image)
+10. a sofa (conf: 0.329)
+   Box: [320.2, 250.2, 512.0, 383.9]
+   Size: 191.8x133.6 (37.5%x34.8% of image)
 
-11. a rubbish bin (conf: 0.306)
-   Box: [39.2, 139.3, 76.7, 179.8]
-   Size: 37.5x40.5 (7.3%x14.9% of image)
+11. a door (conf: 0.303)
+   Box: [-0.0, 0.3, 154.5, 218.4]
+   Size: 154.5x218.1 (30.2%x56.8% of image)
 
-12. a headset (conf: 0.297)
-   Box: [298.6, 85.9, 338.7, 181.5]
-   Size: 40.0x95.6 (7.8%x35.1% of image)
+12. a cushion (conf: 0.298)
+   Box: [112.5, 254.9, 190.9, 308.9]
+   Size: 78.4x54.0 (15.3%x14.1% of image)
 
-13. a rubbish bin (conf: 0.279)
-   Box: [457.5, 180.4, 511.2, 270.2]
-   Size: 53.7x89.8 (10.5%x33.0% of image)
-
-14. a bottle (conf: 0.271)
-   Box: [163.4, 212.6, 183.7, 256.3]
-   Size: 20.2x43.7 (3.9%x16.1% of image)
-
-15. a bin (conf: 0.256)
-   Box: [425.1, 13.2, 511.0, 269.7]
-   Size: 86.0x256.4 (16.8%x94.3% of image)
-
-16. monitor (conf: 0.254)
-   Box: [301.8, 87.6, 336.5, 178.3]
-   Size: 34.6x90.7 (6.8%x33.3% of image)
+13. a table (conf: 0.254)
+   Box: [70.9, 342.6, 322.3, 384.1]
+   Size: 251.5x41.5 (49.1%x10.8% of image)
 

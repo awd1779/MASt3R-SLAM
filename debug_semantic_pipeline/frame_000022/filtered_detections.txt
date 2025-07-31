@@ -1,82 +1,194 @@
-Filtered 20 detections:
+Filtered 48 detections:
 
-Vocabulary: bag
+Vocabulary: basket
+Detected: '' (score: 0.225)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: basket
+Detected: '' (score: 0.239)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: book
+Detected: '' (score: 0.238)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: book
+Detected: 'a' (score: 0.253)
+Reason: Empty label (length=1, area=0.00)
+
+Vocabulary: book
+Detected: '' (score: 0.242)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: book
+Detected: '' (score: 0.214)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: candle
+Detected: 'a' (score: 0.256)
+Reason: Empty label (length=1, area=0.01)
+
+Vocabulary: ceiling
+Detected: '' (score: 0.232)
+Reason: Empty label (length=0, area=0.20)
+
+Vocabulary: cushion
+Detected: '' (score: 0.232)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: door
+Detected: '' (score: 0.248)
+Reason: Empty label (length=0, area=0.27)
+
+Vocabulary: door
+Detected: '' (score: 0.224)
+Reason: Empty label (length=0, area=0.21)
+
+Vocabulary: door
+Detected: '' (score: 0.225)
+Reason: Empty label (length=0, area=0.23)
+
+Vocabulary: door
+Detected: '' (score: 0.224)
+Reason: Empty label (length=0, area=0.38)
+
+Vocabulary: door
+Detected: '' (score: 0.210)
+Reason: Empty label (length=0, area=0.16)
+
+Vocabulary: door
+Detected: '' (score: 0.236)
+Reason: Empty label (length=0, area=0.35)
+
+Vocabulary: floor
+Detected: '' (score: 0.203)
+Reason: Empty label (length=0, area=0.25)
+
+Vocabulary: floor
+Detected: '' (score: 0.208)
+Reason: Empty label (length=0, area=0.27)
+
+Vocabulary: indoor plant
+Detected: '' (score: 0.229)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: indoor plant
+Detected: '' (score: 0.223)
+Reason: Empty label (length=0, area=0.05)
+
+Vocabulary: pillar
+Detected: '' (score: 0.202)
+Reason: Empty label (length=0, area=0.06)
+
+Vocabulary: pillar
+Detected: '' (score: 0.203)
+Reason: Empty label (length=0, area=0.04)
+
+Vocabulary: pillar
+Detected: '' (score: 0.223)
+Reason: Empty label (length=0, area=0.09)
+
+Vocabulary: plant stand
+Detected: '' (score: 0.226)
+Reason: Empty label (length=0, area=0.14)
+
+Vocabulary: plant stand
+Detected: '' (score: 0.218)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: plate
+Detected: '' (score: 0.208)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: stool
+Detected: '' (score: 0.203)
+Reason: Empty label (length=0, area=0.14)
+
+Vocabulary: switch
+Detected: '' (score: 0.238)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: switch
+Detected: '' (score: 0.230)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: switch
+Detected: '' (score: 0.222)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: switch
+Detected: '' (score: 0.244)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: switch
+Detected: '' (score: 0.236)
+Reason: Empty label (length=0, area=0.16)
+
+Vocabulary: switch
+Detected: '' (score: 0.210)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: switch
 Detected: '' (score: 0.213)
 Reason: Empty label (length=0, area=0.00)
 
-Vocabulary: bottle
-Detected: '' (score: 0.220)
-Reason: Empty label (length=0, area=0.00)
-
-Vocabulary: bottle
-Detected: '' (score: 0.219)
-Reason: Empty label (length=0, area=0.12)
-
-Vocabulary: bottle
-Detected: '' (score: 0.214)
-Reason: Empty label (length=0, area=0.13)
-
-Vocabulary: chair
-Detected: '' (score: 0.235)
-Reason: Empty label (length=0, area=0.00)
-
-Vocabulary: chair
-Detected: '' (score: 0.211)
-Reason: Empty label (length=0, area=0.00)
-
-Vocabulary: chair
-Detected: '' (score: 0.234)
-Reason: Empty label (length=0, area=0.01)
-
-Vocabulary: coffee cup
-Detected: '' (score: 0.224)
-Reason: Empty label (length=0, area=0.00)
-
-Vocabulary: container
-Detected: '' (score: 0.218)
-Reason: Empty label (length=0, area=0.06)
-
-Vocabulary: container
-Detected: '' (score: 0.249)
+Vocabulary: switch
+Detected: '' (score: 0.236)
 Reason: Empty label (length=0, area=0.14)
-
-Vocabulary: laptop
-Detected: '' (score: 0.249)
-Reason: Empty label (length=0, area=0.13)
-
-Vocabulary: laptop
-Detected: '' (score: 0.216)
-Reason: Empty label (length=0, area=0.12)
-
-Vocabulary: laptop
-Detected: '' (score: 0.229)
-Reason: Empty label (length=0, area=0.04)
-
-Vocabulary: laptop
-Detected: '' (score: 0.248)
-Reason: Empty label (length=0, area=0.03)
-
-Vocabulary: laptop
-Detected: '' (score: 0.205)
-Reason: Empty label (length=0, area=0.02)
-
-Vocabulary: monitor
-Detected: '' (score: 0.211)
-Reason: Empty label (length=0, area=0.01)
-
-Vocabulary: monitor
-Detected: '' (score: 0.223)
-Reason: Empty label (length=0, area=0.02)
-
-Vocabulary: monitor
-Detected: '' (score: 0.243)
-Reason: Empty label (length=0, area=0.14)
-
-Vocabulary: mouse
-Detected: '' (score: 0.218)
-Reason: Empty label (length=0, area=0.00)
 
 Vocabulary: table
-Detected: '' (score: 0.210)
+Detected: '' (score: 0.236)
 Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: table
+Detected: '' (score: 0.245)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: table
+Detected: '' (score: 0.203)
+Reason: Empty label (length=0, area=0.03)
+
+Vocabulary: vase
+Detected: '' (score: 0.233)
+Reason: Empty label (length=0, area=0.05)
+
+Vocabulary: vent
+Detected: '' (score: 0.233)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: vent
+Detected: '' (score: 0.214)
+Reason: Empty label (length=0, area=0.23)
+
+Vocabulary: wall
+Detected: '' (score: 0.223)
+Reason: Empty label (length=0, area=0.44)
+
+Vocabulary: wall
+Detected: '' (score: 0.218)
+Reason: Empty label (length=0, area=0.08)
+
+Vocabulary: wall
+Detected: '' (score: 0.205)
+Reason: Empty label (length=0, area=0.39)
+
+Vocabulary: wall plug
+Detected: '' (score: 0.213)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: wall plug
+Detected: '' (score: 0.234)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: wall plug
+Detected: '' (score: 0.244)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: wall plug
+Detected: '' (score: 0.221)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: window
+Detected: '' (score: 0.229)
+Reason: Empty label (length=0, area=0.23)
 
