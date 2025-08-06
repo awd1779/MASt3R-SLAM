@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import numpy as np
 from typing import Dict, Tuple, Optional
 import cv2
+import logging
 from mast3r_slam.semantic_frame import decode_rle
 
 
@@ -277,3 +278,198 @@ def visualize_track_associations(image: np.ndarray,
                        (255, 255, 255), 2)
     
     return vis_image
+
+
+# === New utilities for geometric tracker optimization ===
+
+class TrackingLogger:
+    """Centralized logging utilities for object tracking."""
+    
+    def __init__(self, debug_labels: list = None, debug_all: bool = False):
+        self.debug_labels = set(debug_labels) if debug_labels else set()
+        self.debug_all = debug_all
+        self.logger = logging.getLogger('mast3r_slam.tracking_utils')
+    
+    def format_position(self, tensor, label: str = "pos") -> str:
+        """Safe position formatting for logging."""
+        if tensor is None:
+            return f"{label}=None"
+        
+        pos = tensor.cpu().numpy()
+        if pos.ndim == 0:
+            pos = pos.reshape(1)
+        
+        vals = [pos.flat[i] if i < pos.size else 0.0 for i in range(3)]
+        return f"{label}=[{vals[0]:.2f}, {vals[1]:.2f}, {vals[2]:.2f}]"
+    
+    def log_detection_extraction(self, detection: dict, instance_id: int):
+        """Centralized detection logging."""
+        if not self.logger.isEnabledFor(logging.DEBUG):
+            return
+            
+        cam_pos = self.format_position(detection['bbox_cam']['center'], "cam")
+        world_pos = self.format_position(detection['bbox_world']['center'], "world")
+        volume = detection['bbox_cam']['volume']
+        points = detection['bbox_cam']['extraction_stats']['valid_3d_points']
+        
+        self.logger.debug(f"Extracted {detection['label']} (instance {instance_id}): "
+                         f"{cam_pos}, {world_pos}, vol={volume:.3f}m³, pts={points}")
+    
+    def log_matching_details(self, detection: dict, track_id: int, scores: dict, 
+                           frame_id: int, decision: str = "matched"):
+        """Centralized matching decision logging."""
+        label = detection['label']
+        
+        # Only log detailed info for debug labels or if debug_all is enabled
+        if not (self.debug_all or label in self.debug_labels):
+            return
+            
+        det_pos = self.format_position(detection['bbox_world']['center'], "det")
+        
+        self.logger.info(f"{label.upper()} {decision.upper()} - Frame {frame_id}, Track {track_id}:")
+        self.logger.info(f"  {det_pos}")
+        
+        if 'track_pos' in scores:
+            track_pos = scores['track_pos']
+            self.logger.info(f"  track=[{track_pos[0]:.2f}, {track_pos[1]:.2f}, {track_pos[2]:.2f}]")
+        
+        if 'distance' in scores:
+            self.logger.info(f"  Distance: {scores['distance']:.3f}m")
+        if 'matching_score' in scores:
+            self.logger.info(f"  Score: {scores['matching_score']:.3f}")
+        if 'iou_3d' in scores:
+            self.logger.info(f"  IoU: {scores['iou_3d']:.3f}")
+
+
+class ConfigHelper:
+    """Helper for configuration access patterns."""
+    
+    # Static mapping for object categories
+    OBJECT_CATEGORIES = {
+        frozenset(['wall', 'floor', 'ceiling']): ('large', 1.0),
+        frozenset(['chair', 'table', 'sofa', 'bed', 'desk']): ('furniture', 0.5),
+        frozenset(['bottle', 'cup', 'mouse', 'keyboard']): ('small', 0.2)
+    }
+    
+    @classmethod
+    def get_distance_threshold(cls, label: str, world_thresholds: dict = None) -> float:
+        """Get world distance threshold based on object type."""
+        for label_set, (category, default_val) in cls.OBJECT_CATEGORIES.items():
+            if label in label_set:
+                if world_thresholds:
+                    return world_thresholds.get(category, default_val)
+                return default_val
+        
+        # Default category
+        if world_thresholds:
+            return world_thresholds.get('default', 0.3)
+        return 0.3
+
+
+class TrackProcessor:
+    """Generic track processing utilities."""
+    
+    @staticmethod
+    def process_tracks(tracks: dict, condition_fn, action_fn, collect_results: bool = False):
+        """Generic track processing with condition and action functions."""
+        results = [] if collect_results else None
+        
+        for track_id, track in tracks.items():
+            if condition_fn(track_id, track):
+                result = action_fn(track_id, track)
+                if collect_results and result is not None:
+                    results.append(result)
+        
+        return results
+    
+    @staticmethod
+    def filter_tracks(tracks: dict, condition_fn) -> dict:
+        """Filter tracks based on condition function."""
+        return {tid: track for tid, track in tracks.items() if condition_fn(tid, track)}
+
+
+class StatisticsCollector:
+    """Unified statistics collection and reporting."""
+    
+    @staticmethod
+    def generate_track_summary(tracks: dict, timing_stats: dict = None) -> dict:
+        """Generate comprehensive track summary data."""
+        summary = {
+            'total_tracks': len(tracks),
+            'active_tracks': 0,
+            'lost_tracks': 0,
+            'label_counts': {},
+            'active_labels': {},
+            'positions': {},
+            'avg_observations': 0,
+            'avg_confidence': 0,
+            'timing': timing_stats or {}
+        }
+        
+        total_obs = []
+        total_conf = []
+        
+        for track_id, track in tracks.items():
+            # Count by status
+            if track.lost_frames == 0:
+                summary['active_tracks'] += 1
+                # Active track positions
+                if track.centroid_world is not None:
+                    pos = track.centroid_world.cpu().numpy()
+                    summary['positions'][track_id] = {
+                        'label': track.label,
+                        'position': pos.tolist(),
+                        'variance': track.get_world_position_variance(),
+                        'observations': track.total_observations
+                    }
+                # Active label counts
+                summary['active_labels'][track.label] = summary['active_labels'].get(track.label, 0) + 1
+            else:
+                summary['lost_tracks'] += 1
+            
+            # Total label counts
+            summary['label_counts'][track.label] = summary['label_counts'].get(track.label, 0) + 1
+            
+            # Accumulate stats
+            total_obs.append(track.total_observations)
+            total_conf.append(track.confidence)
+        
+        summary['avg_observations'] = np.mean(total_obs) if total_obs else 0
+        summary['avg_confidence'] = np.mean(total_conf) if total_conf else 0
+        
+        return summary
+    
+    @staticmethod
+    def log_tracking_stats(summary: dict, frame_id: int):
+        """Log tracking statistics from summary."""
+        logger = logging.getLogger('mast3r_slam.tracking_utils')
+        
+        active_labels = summary['active_labels']
+        timing = summary['timing']
+        
+        logger.info(f"Tracking Stats - Frame {frame_id}:")
+        logger.info(f"  Active tracks: {summary['active_tracks']} "
+                   f"({', '.join(f'{k}:{v}' for k, v in active_labels.items())})")
+        logger.info(f"  Total tracks: {summary['total_tracks']}")
+        
+        if timing:
+            avg_times = {k: np.mean(v) for k, v in timing.items() if v}
+            logger.info(f"  Timing (ms): " + 
+                       ", ".join(f"{k}={v:.1f}" for k, v in avg_times.items()))
+    
+    @staticmethod  
+    def log_world_positions(summary: dict):
+        """Log world positions from summary."""
+        logger = logging.getLogger('mast3r_slam.tracking_utils')
+        
+        logger.info("=== World Position Report ===")
+        
+        positions = summary['positions']
+        for track_id in sorted(positions.keys()):
+            data = positions[track_id]
+            pos = data['position']
+            logger.info(f"Track {track_id:3d} ({data['label']:12s}): "
+                       f"pos=[{pos[0]:6.2f}, {pos[1]:6.2f}, {pos[2]:6.2f}], "
+                       f"var={data['variance']:.3f}m, obs={data['observations']:3d}")
+        
+        logger.info("=" * 50)

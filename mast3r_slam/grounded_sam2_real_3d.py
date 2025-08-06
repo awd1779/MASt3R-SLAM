@@ -120,17 +120,14 @@ def _run_processor_with_3d_tracker(frame_queue, result_queue, vocabulary, device
         use_3d = tracking_config.get('use_3d_tracking', True)
         
         if use_3d:
-            # Check if global tracking is enabled
-            use_global = tracking_config.get('use_global_tracking', False)
+            # Use unified geometric tracker (handles both standard and global modes)
+            from mast3r_slam.geometric_3d_tracker import Geometric3DTracker
+            tracker = Geometric3DTracker(tracking_config)
             
-            if use_global:
-                from mast3r_slam.geometric_3d_tracker_global import Geometric3DTrackerGlobal
-                tracker = Geometric3DTrackerGlobal(tracking_config)
-                logger.info("Created 3D geometric tracker with GLOBAL matching")
-            else:
-                from mast3r_slam.geometric_3d_tracker import Geometric3DTracker
-                tracker = Geometric3DTracker(tracking_config)
-                logger.info("Created 3D geometric tracker in semantic processor process")
+            # Log mode based on config
+            use_global = tracking_config.get('use_global_tracking', False)
+            mode = "GLOBAL" if use_global else "STANDARD"
+            logger.info(f"Created 3D geometric tracker with {mode} matching in semantic processor process")
         else:
             from mast3r_slam.object_tracker_simple import SimpleObjectTracker
             tracker = SimpleObjectTracker(tracking_config)

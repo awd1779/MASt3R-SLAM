@@ -19,7 +19,9 @@ from mast3r_slam.bbox_3d_generic import (
 )
 from mast3r_slam.semantic_frame import decode_rle
 from mast3r_slam.label_based_tracker import LabelBasedTracker
-from mast3r_slam.robust_geometric_matcher import RobustGeometricMatcher
+from mast3r_slam.tracking_utils import (
+    TrackingLogger, ConfigHelper, TrackProcessor, StatisticsCollector
+)
 
 logger = logging.getLogger('mast3r_slam.geometric_3d_tracker')
 
@@ -116,6 +118,18 @@ class Geometric3DTracker:
         self.weight_centroid = config.get('weight_centroid', 0.3)
         self.weight_size = config.get('weight_size', 0.1)
         
+        # Global tracking mode configuration
+        self.use_global_tracking = config.get('use_global_tracking', False)
+        
+        # Sliding window parameters (only used in global mode)
+        self.window_size = config.get('sliding_window_size', 5)
+        self.global_search_tracks = config.get('global_search_tracks', 20)
+        
+        # Global tracking state (only used in global mode)
+        if self.use_global_tracking:
+            self.recent_keyframes = []  # List of (frame_id, detections)
+            self.track_last_seen = {}  # track_id -> frame_id
+        
         # 3D bbox system
         bbox_config = BBox3DConfig(
             min_points_ratio=config.get('min_points_ratio', 0.001),
@@ -157,7 +171,13 @@ class Geometric3DTracker:
             'unique_objects': []
         })
         
-        logger.info("Initialized Geometric3DTracker with 3D matching and label-based tracking")
+        # Initialize centralized logging
+        debug_labels = config.get('debug_labels', [])
+        debug_all = config.get('debug_all', False)
+        self.tracking_logger = TrackingLogger(debug_labels, debug_all)
+        
+        tracking_mode = "Global" if self.use_global_tracking else "Standard"
+        logger.info(f"Initialized Geometric3DTracker ({tracking_mode} mode) with 3D matching and label-based tracking")
     
     def process_frame(self, 
                      keyframe,
@@ -346,23 +366,8 @@ class Geometric3DTracker:
                     'instance_id': instance_id
                 }
                 
-                # Log both camera and world positions
-                cam_center = bbox_cam['center'].cpu().numpy()
-                world_center = bbox_world['center'].cpu().numpy()
-                
-                # Ensure arrays are properly shaped
-                if cam_center.ndim == 0:
-                    cam_center = cam_center.reshape(1)
-                if world_center.ndim == 0:
-                    world_center = world_center.reshape(1)
-                    
-                # Extract values safely
-                cam_vals = [cam_center.flat[i] if i < cam_center.size else 0.0 for i in range(3)]
-                world_vals = [world_center.flat[i] if i < world_center.size else 0.0 for i in range(3)]
-                
-                logger.debug(f"Extracted 3D bbox for {label} (instance {instance_id}): "
-                           f"cam_pos=[{cam_vals[0]:.2f}, {cam_vals[1]:.2f}, {cam_vals[2]:.2f}], "
-                           f"world_pos=[{world_vals[0]:.2f}, {world_vals[1]:.2f}, {world_vals[2]:.2f}]")
+                # Use centralized logging for detection extraction
+                self.tracking_logger.log_detection_extraction(detections[instance_id], instance_id)
         
         logger.info(f"Extracted {len(detections)} valid 3D bboxes from "
                    f"{len(semantic_data.get('masks_rle', {}))} detections")
@@ -383,6 +388,17 @@ class Geometric3DTracker:
         
         assignments = {}
         used_tracks = set()
+        
+        # Update track last seen info for global tracking
+        if self.use_global_tracking:
+            def always_true(track_id, track):
+                return True
+            
+            def update_last_seen(track_id, track):
+                self.track_last_seen[track_id] = track.last_seen_frame
+                return None
+            
+            TrackProcessor.process_tracks(self.tracked_objects, always_true, update_last_seen)
         
         # Sort detections by confidence for stable matching
         sorted_detections = sorted(
@@ -415,18 +431,32 @@ class Geometric3DTracker:
                 else:
                     logger.info(f"No existing track for unique object '{detection['label']}' yet")
             
-            # If not forced match, search existing tracks with same label
+            # If not forced match, get candidate tracks
             if best_track_id is None:
-                for track_id, track in self.tracked_objects.items():
-                    if track_id in used_tracks:
-                        continue
+                if self.use_global_tracking:
+                    # Use global candidate search
+                    candidate_tracks = self._get_candidate_tracks(
+                        detection['label'], 
+                        frame_id, 
+                        used_tracks
+                    )
+                else:
+                    # Use standard same-label search
+                    def is_candidate_track(track_id, track):
+                        return (track_id not in used_tracks and 
+                               track.label == detection['label'] and
+                               track.lost_frames <= self.max_lost_frames)
                     
-                    if track.label != detection['label']:
-                        continue
+                    def get_track_id(track_id, track):
+                        return track_id
                     
-                    # Skip if lost too long
-                    if track.lost_frames > self.max_lost_frames:
-                        continue
+                    candidate_tracks = TrackProcessor.process_tracks(
+                        self.tracked_objects, is_candidate_track, get_track_id, collect_results=True
+                    )
+                
+                # Try to match with each candidate
+                for track_id in candidate_tracks:
+                    track = self.tracked_objects[track_id]
                     
                     # ROBUST 3D MATCHING
                     if track.bbox_3d_world is not None and track.centroid_world is not None:
@@ -434,18 +464,24 @@ class Geometric3DTracker:
                         matching_score = self._compute_robust_matching_score(
                             detection, track, frame_id
                         )
+                        
+                        # Apply recency boost for global tracking
+                        if self.use_global_tracking:
+                            recency_boost = self._compute_recency_boost(track, frame_id)
+                            matching_score *= recency_boost
                     
-                        # Enhanced debug logging for table tracking
-                        if detection['label'] == 'a table':
-                            det_center = detection['bbox_world']['center'].cpu().numpy()
-                            track_center = track.centroid_world.cpu().numpy()
-                            dist = np.linalg.norm(det_center - track_center)
-                            logger.info(f"TABLE MATCHING - Frame {frame_id}, Track {track_id}:")
-                            logger.info(f"  Detection pos: [{det_center[0]:.2f}, {det_center[1]:.2f}, {det_center[2]:.2f}]")
-                            logger.info(f"  Track pos: [{track_center[0]:.2f}, {track_center[1]:.2f}, {track_center[2]:.2f}]")
-                            logger.info(f"  Distance: {dist:.3f}m")
-                            logger.info(f"  Matching score: {matching_score:.3f}")
-                            logger.info(f"  Threshold: {self.iou_threshold_3d}")
+                        # Enhanced debug logging for special objects
+                        if self._should_debug_label(detection['label']):
+                            dist = self._compute_3d_distance(detection['bbox_world']['center'], track.centroid_world)
+                            scores = {
+                                'track_pos': track.centroid_world.cpu().numpy(),
+                                'distance': dist,
+                                'matching_score': matching_score,
+                                'threshold': self.iou_threshold_3d
+                            }
+                            self.tracking_logger.log_matching_details(
+                                detection, track_id, scores, frame_id, "checking"
+                            )
                         
                         # Debug logging for important objects
                         elif detection['label'] in ['a sofa', 'a wall'] and matching_score > 0:
@@ -475,18 +511,23 @@ class Geometric3DTracker:
                 track = self.tracked_objects[best_track_id]
                 self._update_track_world(track, detection, frame_id)
                 
-                # Check if this was a partial object match
+                # Log successful match with compact format
+                track = self.tracked_objects[best_track_id]
                 if track.bbox_3d_world is not None:
-                    size_ratio = detection['bbox_world']['volume'] / (track.bbox_3d_world['volume'] + 1e-6)
+                    size_ratio = self._compute_volume_ratio(detection['bbox_world']['volume'], track.bbox_3d_world['volume'])
                     if size_ratio > 2.0 and track.total_observations < 3:
                         logger.info(f"Matched partial→full {detection['label']} to track {best_track_id} "
                                    f"(size grew {size_ratio:.1f}x, score: {best_score:.3f})")
                     else:
-                        logger.info(f"Matched {detection['label']} to track {best_track_id} "
-                                   f"(score: {best_score:.3f})")
+                        scores = {'matching_score': best_score}
+                        self.tracking_logger.log_matching_details(
+                            detection, best_track_id, scores, frame_id, "matched"
+                        )
                 else:
-                    logger.info(f"Matched {detection['label']} to track {best_track_id} "
-                               f"(score: {best_score:.3f})")
+                    scores = {'matching_score': best_score}
+                    self.tracking_logger.log_matching_details(
+                        detection, best_track_id, scores, frame_id, "matched"
+                    )
             else:
                 # Create new track
                 new_track_id = self._create_new_track(detection, frame_id)
@@ -496,34 +537,128 @@ class Geometric3DTracker:
                 if self.label_tracker.is_unique_object(detection['label']):
                     self.label_tracker.assign_track_to_unique_object(detection['label'], new_track_id)
                 
-                world_pos = detection['bbox_world']['center'].cpu().numpy()
-                logger.info(f"Created new track {new_track_id} for {detection['label']} "
-                           f"at world pos [{world_pos[0]:.2f}, {world_pos[1]:.2f}, {world_pos[2]:.2f}]")
+                world_pos = self.tracking_logger.format_position(
+                    detection['bbox_world']['center'], "world"
+                )
+                logger.info(f"Created new track {new_track_id} for {detection['label']} at {world_pos}")
+        
+        # Update sliding window for global tracking
+        if self.use_global_tracking:
+            self._update_sliding_window(frame_id, detections)
         
         return assignments
     
     def _get_world_distance_threshold(self, label: str) -> float:
         """Get distance threshold based on object type from config."""
-        if hasattr(self, 'world_thresholds'):
-            # Check specific object categories
-            if label in ['wall', 'floor', 'ceiling']:
-                return self.world_thresholds.get('large', 1.0)
-            elif label in ['chair', 'table', 'sofa', 'bed', 'desk']:
-                return self.world_thresholds.get('furniture', 0.5)
-            elif label in ['bottle', 'cup', 'mouse', 'keyboard']:
-                return self.world_thresholds.get('small', 0.2)
+        world_thresholds = getattr(self, 'world_thresholds', None)
+        return ConfigHelper.get_distance_threshold(label, world_thresholds)
+    
+    def _compute_containment_ratios(self, det_bbox: Dict, track_bbox: Dict) -> Tuple[float, float, float]:
+        """Calculate containment ratios and intersection volume."""
+        det_vol = det_bbox['volume']
+        track_vol = track_bbox['volume']
+        
+        # Calculate intersection volume for containment ratios
+        if det_bbox['type'] == 'aabb' and track_bbox['type'] == 'aabb':
+            inter_min = torch.max(det_bbox['min'], track_bbox['min'])
+            inter_max = torch.min(det_bbox['max'], track_bbox['max'])
+            if torch.all(inter_min < inter_max):
+                inter_vol = torch.prod(inter_max - inter_min).item()
             else:
-                return self.world_thresholds.get('default', 0.3)
+                inter_vol = 0.0
         else:
-            # Fallback if config not loaded
-            if label in ['wall', 'floor', 'ceiling']:
-                return 1.0
-            elif label in ['chair', 'table', 'sofa', 'bed', 'desk']:
-                return 0.5
-            elif label in ['bottle', 'cup', 'mouse', 'keyboard']:
-                return 0.2
-            else:
-                return 0.3
+            # For other bbox types, estimate from IoU
+            iou_3d = self.bbox_computer.compute_3d_iou(det_bbox, track_bbox)
+            inter_vol = iou_3d * (det_vol + track_vol - iou_3d * (det_vol + track_vol))
+        
+        # Calculate containment ratios
+        containment_det_in_track = inter_vol / det_vol if det_vol > 0 else 0
+        containment_track_in_det = inter_vol / track_vol if track_vol > 0 else 0
+        
+        return containment_det_in_track, containment_track_in_det, inter_vol
+    
+    def _compute_distance_and_size_scores(self, det_bbox: Dict, track: TrackedObject3D) -> Tuple[float, float, float, bool]:
+        """Compute distance and size consistency scores."""
+        track_bbox = track.bbox_3d_world
+        
+        # Distance calculation
+        dist = self._compute_3d_distance(det_bbox['center'], track.centroid_world)
+        
+        # Get object size for distance normalization
+        det_size = det_bbox['dimensions'].max().item()
+        track_size = track_bbox['dimensions'].max().item()
+        avg_size = (det_size + track_size) / 2.0
+        
+        # Normalize distance by object size
+        norm_dist = dist / (avg_size + 1e-6)
+        
+        # Size consistency check with tolerance for early observations
+        size_ratio = self._compute_volume_ratio(det_bbox['volume'], track_bbox['volume'])
+        
+        # Allow more size variation for tracks with few observations
+        if track.total_observations < 3:
+            size_consistent = 0.2 < size_ratio < 5.0  # Allow 5x growth
+            if size_ratio > 2.0:
+                logger.debug(f"  Allowing size growth for early track: ratio={size_ratio:.2f}, observations={track.total_observations}")
+        else:
+            size_consistent = 0.5 < size_ratio < 2.0  # Allow 2x size variation
+        
+        # Compute base scores
+        dist_score = 1.0 / (1.0 + norm_dist)
+        size_score = 2.0 * min(size_ratio, 1/size_ratio) / (1 + min(size_ratio, 1/size_ratio))
+        
+        return dist_score, size_score, norm_dist, size_consistent
+    
+    def _compute_3d_distance(self, pos1: torch.Tensor, pos2: torch.Tensor) -> float:
+        """Compute 3D distance between two positions."""
+        return torch.norm(pos1 - pos2).item()
+    
+    def _should_debug_label(self, label: str) -> bool:
+        """Check if label should have detailed debug logging."""
+        return label == 'a table' and self.tracking_logger.debug_all
+    
+    def _log_table_debug(self, message: str, **kwargs):
+        """Log debug message for table matching with formatted values."""
+        if kwargs:
+            formatted_kwargs = ', '.join(f"{k}={v:.3f}" if isinstance(v, float) else f"{k}={v}" 
+                                        for k, v in kwargs.items())
+            logger.info(f"    {message}: {formatted_kwargs}")
+        else:
+            logger.info(f"    {message}")
+    
+    def _compute_volume_ratio(self, vol1: float, vol2: float) -> float:
+        """Compute volume ratio with epsilon protection."""
+        return vol1 / (vol2 + 1e-6)
+    
+    def _apply_temporal_boost(self, score: float, track: TrackedObject3D, det_bbox: Dict, 
+                             frame_id: int, avg_size: float, detection: Dict) -> float:
+        """Apply temporal consistency boost based on prediction."""
+        if track.total_observations <= 1 or score <= 0:
+            return score
+            
+        # Use world position history for prediction
+        if len(track.world_observations) >= 2:
+            # Simple velocity prediction
+            pos_prev = track.world_observations[-2]
+            pos_curr = track.world_observations[-1]
+            velocity = pos_curr - pos_prev
+            
+            # Predicted position
+            predicted_pos = pos_curr + velocity * (frame_id - track.last_seen_frame)
+            
+            # Check prediction error
+            pred_error = self._compute_3d_distance(det_bbox['center'], predicted_pos)
+            pred_error_normalized = pred_error / (avg_size + 1e-6)
+            
+            # Apply boost for good predictions
+            if pred_error_normalized < 1.0:
+                boost = 1.0 + 0.3 * (1.0 - pred_error_normalized)
+                score *= boost
+                
+                if self._should_debug_label(detection['label']):
+                    self._log_table_debug("Temporal boost", pred_error=pred_error, boost=boost)
+        
+        return score
     
     def _update_track_world(self, track: TrackedObject3D, detection: Dict, frame_id: int):
         """Update track with new world observation."""
@@ -533,7 +668,7 @@ class Geometric3DTracker:
         new_world = detection['bbox_world']['center']
         
         if old_world is not None:
-            position_change = torch.norm(new_world - old_world).item()
+            position_change = self._compute_3d_distance(new_world, old_world)
             track.position_variance_world = max(track.position_variance_world, position_change)
             
             # Log if significant movement (potential issue)
@@ -584,172 +719,107 @@ class Geometric3DTracker:
         # 1. 3D IoU - Primary matching criterion
         iou_3d = self.bbox_computer.compute_3d_iou(det_bbox, track_bbox)
         
-        # Log detailed info for tables
-        if detection['label'] == 'a table':
+        # Log detailed info for debug labels
+        if self._should_debug_label(detection['label']):
             logger.info(f"  TABLE MATCHING DETAILS:")
-            logger.info(f"    3D IoU: {iou_3d:.3f}")
+            self._log_table_debug("3D IoU", iou=iou_3d)
         
-        # Calculate volumes for containment check
-        det_vol = det_bbox['volume']
-        track_vol = track_bbox['volume']
+        # 2. Calculate containment ratios
+        containment_det_in_track, containment_track_in_det, _ = self._compute_containment_ratios(det_bbox, track_bbox)
         
-        # Calculate intersection volume for containment ratios
-        # For AABB boxes, we can compute this directly
-        if det_bbox['type'] == 'aabb' and track_bbox['type'] == 'aabb':
-            inter_min = torch.max(det_bbox['min'], track_bbox['min'])
-            inter_max = torch.min(det_bbox['max'], track_bbox['max'])
-            if torch.all(inter_min < inter_max):
-                inter_vol = torch.prod(inter_max - inter_min).item()
-            else:
-                inter_vol = 0.0
-        else:
-            # For other bbox types, estimate from IoU
-            inter_vol = iou_3d * (det_vol + track_vol - iou_3d * (det_vol + track_vol))
+        # Log containment for debug labels
+        if self._should_debug_label(detection['label']):
+            self._log_table_debug("Volumes", detection=det_bbox['volume'], track=track_bbox['volume'])
+            self._log_table_debug("Containment", det_in_track=containment_det_in_track, track_in_det=containment_track_in_det)
         
-        # Calculate containment ratios
-        containment_det_in_track = inter_vol / det_vol if det_vol > 0 else 0
-        containment_track_in_det = inter_vol / track_vol if track_vol > 0 else 0
-        
-        # Log containment for tables
-        if detection['label'] == 'a table':
-            logger.info(f"    Detection volume: {det_vol:.3f}m³")
-            logger.info(f"    Track volume: {track_vol:.3f}m³")
-            logger.info(f"    Containment det in track: {containment_det_in_track:.3f}")
-            logger.info(f"    Containment track in det: {containment_track_in_det:.3f}")
-        
-        # Check for partial object case
+        # 3. Check for partial object case
         if containment_det_in_track > 0.7 or containment_track_in_det > 0.7:
-            # This is likely the same object, just partially visible before
-            dist = torch.norm(det_bbox['center'] - track.centroid_world).item()
+            dist = self._compute_3d_distance(det_bbox['center'], track.centroid_world)
             norm_dist = dist / (det_bbox['dimensions'].max().item() + 1e-6)
             
-            if detection['label'] == 'a table':
-                logger.info(f"    PARTIAL OBJECT CASE - distance: {dist:.3f}m, norm_dist: {norm_dist:.3f}")
+            if self._should_debug_label(detection['label']):
+                self._log_table_debug("PARTIAL OBJECT CASE", distance=dist, norm_dist=norm_dist)
             else:
                 logger.debug(f"  Partial object match: containment_det={containment_det_in_track:.3f}, "
                             f"containment_track={containment_track_in_det:.3f}, dist={dist:.3f}m")
             
-            # Return high score based on centroid distance
             return 0.5 + 0.5 * (1.0 / (1.0 + norm_dist))
         
-        # If IoU is high enough, it's definitely the same object
+        # 4. If IoU is high enough, it's definitely the same object
         if iou_3d > 0.3:  # Strong overlap
             logger.debug(f"  High IoU match: {iou_3d:.3f}")
             return iou_3d
         
-        # 2. For low/no IoU, use distance-based matching with size awareness
-        dist = torch.norm(det_bbox['center'] - track.centroid_world).item()
+        # 5. For low/no IoU, use distance-based matching with size awareness
+        dist_score, size_score, norm_dist, size_consistent = self._compute_distance_and_size_scores(det_bbox, track)
+        avg_size = (det_bbox['dimensions'].max().item() + track_bbox['dimensions'].max().item()) / 2.0
         
-        # Get object size for distance normalization
-        det_size = det_bbox['dimensions'].max().item()
-        track_size = track_bbox['dimensions'].max().item()
-        avg_size = (det_size + track_size) / 2.0
-        
-        # Normalize distance by object size
-        norm_dist = dist / (avg_size + 1e-6)
-        
-        # 3. Size consistency check with tolerance for early observations
-        size_ratio = det_bbox['volume'] / (track_bbox['volume'] + 1e-6)
-        
-        # Allow more size variation for tracks with few observations (partial objects becoming visible)
-        if track.total_observations < 3:
-            # Early in tracking - allow significant growth (partial to full object)
-            size_consistent = 0.2 < size_ratio < 5.0  # Allow 5x growth
-            if size_ratio > 2.0:
-                logger.debug(f"  Allowing size growth for early track: ratio={size_ratio:.2f}, observations={track.total_observations}")
-        else:
-            # Established track - normal size variation
-            size_consistent = 0.5 < size_ratio < 2.0  # Allow 2x size variation
-        
-        # 4. Compute combined score with robust handling
-        # Always compute base scores
-        dist_score = 1.0 / (1.0 + norm_dist)
-        size_score = 2.0 * min(size_ratio, 1/size_ratio) / (1 + min(size_ratio, 1/size_ratio))
-        
-        # Adaptive weighting based on context
-        if iou_3d > 0.3:  # Strong overlap
-            # High confidence - use IoU primarily
-            score = 0.7 * iou_3d + 0.2 * dist_score + 0.1 * size_score
-        elif iou_3d > 0.1:  # Some overlap
-            # Moderate confidence - balanced approach
+        # 6. Adaptive weighting based on context
+        if iou_3d > 0.1:  # Some overlap
             score = 0.5 * iou_3d + 0.3 * dist_score + 0.2 * size_score
         elif containment_det_in_track > 0.5 or containment_track_in_det > 0.5:
-            # Partial visibility with containment
             containment_score = max(containment_det_in_track, containment_track_in_det)
             score = 0.3 * containment_score + 0.5 * dist_score + 0.2 * size_score
         else:
             # No overlap - use distance and size if reasonable
-            # Adaptive distance threshold based on object size and tracking history
+            distance_tolerance = 3.0 if track.total_observations < 3 else 2.0
             object_size = det_bbox['dimensions'].max().item()
-            
-            # More permissive for objects with few observations (might be partial->full)
-            if track.total_observations < 3:
-                distance_tolerance = 3.0
-            else:
-                distance_tolerance = 2.0
-            
-            # Size-aware distance threshold
             max_norm_dist = distance_tolerance * (1.0 + 0.5 * min(object_size, 2.0))
             
             if norm_dist < max_norm_dist and size_consistent:
-                # Reasonable distance and size - might be same object
                 score = 0.6 * dist_score + 0.3 * size_score + 0.1 * (1.0 - norm_dist/max_norm_dist)
                 
-                if detection['label'] == 'a table':
-                    logger.info(f"    Distance-based match: dist={dist:.3f}m, norm_dist={norm_dist:.3f}, score={score:.3f}")
+                if self._should_debug_label(detection['label']):
+                    dist = self._compute_3d_distance(det_bbox['center'], track.centroid_world)
+                    self._log_table_debug("Distance-based match", dist=dist, norm_dist=norm_dist, score=score)
             else:
                 score = 0.0  # Too far or size mismatch
         
-        # 5. Boost score for temporal consistency
-        if track.total_observations > 1 and score > 0:
-            # Use world position history for prediction
-            if len(track.world_observations) >= 2:
-                # Simple velocity prediction
-                pos_prev = track.world_observations[-2]
-                pos_curr = track.world_observations[-1]
-                velocity = pos_curr - pos_prev
-                
-                # Predicted position
-                predicted_pos = pos_curr + velocity * (frame_id - track.last_seen_frame)
-                
-                # Check prediction error
-                pred_error = torch.norm(det_bbox['center'] - predicted_pos).item()
-                pred_error_normalized = pred_error / (avg_size + 1e-6)
-                
-                # Apply boost for good predictions
-                if pred_error_normalized < 1.0:
-                    boost = 1.0 + 0.3 * (1.0 - pred_error_normalized)
-                    score *= boost
-                    
-                    if detection['label'] == 'a table':
-                        logger.info(f"    Temporal boost: pred_error={pred_error:.3f}m, boost={boost:.2f}")
+        # 7. Apply temporal consistency boost
+        score = self._apply_temporal_boost(score, track, det_bbox, frame_id, avg_size, detection)
         
         return score
     
     def _update_lost_tracks(self, assignments: Dict[int, int], frame_id: int):
         """Mark tracks that weren't matched as lost."""
-        
         assigned_tracks = set(assignments.values())
         
-        for track_id, track in self.tracked_objects.items():
-            if track_id not in assigned_tracks and track.last_seen_frame < frame_id:
-                track.mark_lost()
-                logger.debug(f"Track {track_id} ({track.label}) marked as lost "
-                           f"({track.lost_frames} frames)")
+        def should_mark_lost(track_id, track):
+            return track_id not in assigned_tracks and track.last_seen_frame < frame_id
+            
+        def mark_track_lost(track_id, track):
+            track.mark_lost()
+            logger.debug(f"Track {track_id} ({track.label}) marked as lost "
+                       f"({track.lost_frames} frames)")
+            return None
+        
+        TrackProcessor.process_tracks(self.tracked_objects, should_mark_lost, mark_track_lost)
     
     def _cleanup_lost_tracks(self):
         """Remove tracks that have been lost too long."""
         
-        tracks_to_remove = []
+        def should_remove_track(track_id, track):
+            # Use different thresholds for global vs standard tracking
+            remove_threshold = (self.max_lost_frames * 2 if self.use_global_tracking 
+                              else self.max_lost_frames)
+            
+            return (track.lost_frames > remove_threshold or 
+                   (track.confidence < 0.1 and track.total_observations < self.min_observations))
         
-        for track_id, track in self.tracked_objects.items():
-            # Remove if lost too long or low confidence
-            if (track.lost_frames > self.max_lost_frames or 
-                (track.confidence < 0.1 and track.total_observations < self.min_observations)):
-                tracks_to_remove.append(track_id)
+        def collect_track_id(track_id, track):
+            return track_id
+        
+        tracks_to_remove = TrackProcessor.process_tracks(
+            self.tracked_objects, should_remove_track, collect_track_id, collect_results=True
+        )
         
         for track_id in tracks_to_remove:
             track = self.tracked_objects.pop(track_id)
+            
+            # Clean up global tracking state
+            if self.use_global_tracking and track_id in self.track_last_seen:
+                del self.track_last_seen[track_id]
+            
             logger.info(f"Removed track {track_id} ({track.label}): "
                        f"lost_frames={track.lost_frames}, "
                        f"confidence={track.confidence:.2f}, "
@@ -768,45 +838,16 @@ class Geometric3DTracker:
                 self.timing_stats[key] = self.timing_stats[key][-max_stats:]
     
     def _log_tracking_stats(self):
-        """Log tracking statistics."""
-        
-        # Active tracks by label
-        label_counts = {}
-        for track in self.tracked_objects.values():
-            if track.lost_frames == 0:
-                label_counts[track.label] = label_counts.get(track.label, 0) + 1
-        
-        # Timing stats
-        avg_times = {}
-        for key, times in self.timing_stats.items():
-            if times:
-                avg_times[key] = np.mean(times)
-        
-        logger.info(f"Tracking Stats - Frame {self.frame_count}:")
-        logger.info(f"  Active tracks: {sum(label_counts.values())} "
-                   f"({', '.join(f'{k}:{v}' for k, v in label_counts.items())})")
-        logger.info(f"  Total tracks: {len(self.tracked_objects)}")
-        logger.info(f"  Timing (ms): bbox={avg_times.get('bbox_extraction', 0):.1f}, "
-                   f"matching={avg_times.get('matching', 0):.1f}, "
-                   f"total={avg_times.get('total', 0):.1f}")
+        """Log tracking statistics using centralized collector."""
+        summary = StatisticsCollector.generate_track_summary(
+            self.tracked_objects, self.timing_stats
+        )
+        StatisticsCollector.log_tracking_stats(summary, self.frame_count)
     
     def _log_world_positions(self):
-        """Log world positions of all active tracks for debugging."""
-        logger.info("=== World Position Report ===")
-        
-        # Sort tracks by ID for consistent output
-        sorted_tracks = sorted(self.tracked_objects.items())
-        
-        for track_id, track in sorted_tracks:
-            if track.centroid_world is not None and track.lost_frames == 0:  # Only active tracks
-                pos = track.centroid_world.cpu().numpy()
-                variance = track.get_world_position_variance()
-                
-                logger.info(f"Track {track_id:3d} ({track.label:12s}): "
-                           f"pos=[{pos[0]:6.2f}, {pos[1]:6.2f}, {pos[2]:6.2f}], "
-                           f"var={variance:.3f}m, obs={track.total_observations:3d}")
-        
-        logger.info("=" * 50)
+        """Log world positions using centralized collector."""
+        summary = StatisticsCollector.generate_track_summary(self.tracked_objects)
+        StatisticsCollector.log_world_positions(summary)
     
     def get_track_info(self, track_id: int) -> Optional[Dict]:
         """Get information about a specific track."""
@@ -848,3 +889,78 @@ class Geometric3DTracker:
             json.dump(decisions, f, indent=2)
         
         logger.info(f"Saved tracking decisions to {output_file}")
+    
+    # Global tracking specific methods
+    def _get_candidate_tracks(self, label: str, frame_id: int, 
+                             used_tracks: Set[int]) -> List[int]:
+        """Get candidate tracks using global search strategy."""
+        if not self.use_global_tracking:
+            return []
+        
+        candidates = []
+        
+        # 1. All tracks with same label (up to a limit)
+        def is_same_label_candidate(track_id, track):
+            return track.label == label and track_id not in used_tracks
+        
+        def get_track_id(track_id, track):
+            return track_id
+        
+        same_label_tracks = TrackProcessor.process_tracks(
+            self.tracked_objects, is_same_label_candidate, get_track_id, collect_results=True
+        )
+        
+        # 2. Sort by recency and quality
+        track_scores = []
+        for track_id in same_label_tracks:
+            track = self.tracked_objects[track_id]
+            
+            # Compute track quality score
+            recency = frame_id - track.last_seen_frame
+            observations = track.total_observations
+            confidence = track.confidence
+            
+            # Combined score (lower is better for recency)
+            score = (1.0 / (recency + 1)) * confidence * np.log(observations + 1)
+            track_scores.append((track_id, score))
+        
+        # Sort by score and take top N
+        track_scores.sort(key=lambda x: x[1], reverse=True)
+        candidates = [tid for tid, _ in track_scores[:self.global_search_tracks]]
+        
+        return candidates
+    
+    def _compute_recency_boost(self, track: TrackedObject3D, frame_id: int) -> float:
+        """Boost score for recently seen tracks (global tracking only)."""
+        if not self.use_global_tracking:
+            return 1.0
+            
+        frames_since_seen = frame_id - track.last_seen_frame
+        
+        if frames_since_seen == 0:
+            return 1.2  # Currently visible
+        elif frames_since_seen <= 2:
+            return 1.1  # Very recent
+        elif frames_since_seen <= 5:
+            return 1.0  # Recent
+        elif frames_since_seen <= 10:
+            return 0.9  # Getting old
+        else:
+            return 0.8  # Old track
+    
+    def _update_sliding_window(self, frame_id: int, detections: Dict):
+        """Update sliding window of recent keyframes (global tracking only)."""
+        if not self.use_global_tracking:
+            return
+            
+        self.recent_keyframes.append((frame_id, detections))
+        
+        # Keep only recent keyframes
+        if len(self.recent_keyframes) > self.window_size:
+            self.recent_keyframes.pop(0)
+    
+    def get_track_statistics(self) -> Dict:
+        """Get detailed statistics about tracking performance."""
+        stats = StatisticsCollector.generate_track_summary(self.tracked_objects, self.timing_stats)
+        stats['tracking_mode'] = 'Global' if self.use_global_tracking else 'Standard'
+        return stats

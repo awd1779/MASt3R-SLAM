@@ -15,6 +15,8 @@ import logging
 from mast3r_slam.semantic_frame import encode_rle
 from mast3r_slam.config import config
 from mast3r_slam.grounded_sam2_config import SAM2_MODELS, GROUNDING_MODELS, GroundedSAM2ModelSelector
+from mast3r_slam.debug_visualizer import DebugVisualizer
+from mast3r_slam.mask_deduplicator import MaskDeduplicator
 
 logger = logging.getLogger('mast3r_slam.grounded_sam2')
 
@@ -89,126 +91,83 @@ class RealGroundedSAM2Processor:
         # Keyframe access callback (will be set by processor)
         self.keyframe_access_callback = None
         
+        # Initialize debug visualizer and deduplicator
+        self.debug_visualizer = None
+        if self.save_debug_visualizations:
+            self.debug_visualizer = DebugVisualizer(DEBUG_OUTPUT_DIR, save_debug_visualizations)
+        self.mask_deduplicator = MaskDeduplicator(debug_mode=self.debug_mode)
+        
     def visualize_detections(self, image: np.ndarray, boxes: torch.Tensor, labels: List[str], 
                              scores: torch.Tensor, frame_idx: int, stage: str = "grounding"):
         """Visualize bounding boxes on image and save to file."""
-        if not self.save_debug_visualizations:
-            return
+        if self.debug_visualizer:
+            # Create debug directory for this frame
+            debug_dir = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            self.debug_visualizer.debug_dir = debug_dir
             
-        # Create debug directory
-        debug_dir = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}"
-        debug_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create a copy of the image
-        vis_image = image.copy()
-        h, w = image.shape[:2]
-        
-        # Define colors for different stages
-        colors = {
-            'grounding': (0, 255, 0),     # Green for Grounding DINO detections
-            'deduped': (255, 165, 0),     # Orange for after deduplication
-            'final': (0, 0, 255)          # Red for final detections
-        }
-        color = colors.get(stage, (255, 255, 255))
-        
-        # Draw each box
-        for box, label, score in zip(boxes, labels, scores):
-            x1, y1, x2, y2 = box.int().tolist()
+            # Convert tensors to lists for visualizer
+            boxes_list = boxes.tolist() if hasattr(boxes, 'tolist') else boxes
+            scores_list = scores.tolist() if hasattr(scores, 'tolist') else scores
             
-            # Draw rectangle
-            cv2.rectangle(vis_image, (x1, y1), (x2, y2), color, 2)
-            
-            # Add label with confidence
-            label_text = f"{label} ({score:.2f})"
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.6
-            font_thickness = 2
-            
-            # Get text size for background
-            (text_width, text_height), _ = cv2.getTextSize(label_text, font, font_scale, font_thickness)
-            
-            # Draw background rectangle for text
-            cv2.rectangle(vis_image, (x1, y1 - text_height - 5), (x1 + text_width + 5, y1), color, -1)
-            
-            # Draw text
-            cv2.putText(vis_image, label_text, (x1 + 2, y1 - 5), font, font_scale, (255, 255, 255), font_thickness)
-        
-        # Add stage info
-        cv2.putText(vis_image, f"Stage: {stage} | Total: {len(boxes)} detections", 
-                   (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2, cv2.LINE_AA)
-        
-        # Save image
-        save_path = debug_dir / f"{stage}_detections.jpg"
-        cv2.imwrite(str(save_path), vis_image)
-        logger.info(f"Saved {stage} visualization to {save_path}")
-        
-        # Also save detection details to text file
-        text_path = debug_dir / f"{stage}_details.txt"
-        with open(text_path, 'w') as f:
-            f.write(f"Frame {frame_idx} - {stage} detections\n")
-            f.write(f"Total detections: {len(boxes)}\n")
-            f.write(f"Confidence threshold: {self.confidence_threshold}\n\n")
-            for i, (box, label, score) in enumerate(zip(boxes, labels, scores)):
-                x1, y1, x2, y2 = box.tolist()
-                box_width = x2 - x1
-                box_height = y2 - y1
-                f.write(f"{i+1}. {label} (conf: {score:.3f})\n")
-                f.write(f"   Box: [{x1:.1f}, {y1:.1f}, {x2:.1f}, {y2:.1f}]\n")
-                f.write(f"   Size: {box_width:.1f}x{box_height:.1f} ({box_width/w*100:.1f}%x{box_height/h*100:.1f}% of image)\n\n")
+            self.debug_visualizer.visualize_detections(image, boxes_list, labels, scores_list, frame_idx, stage)
     
     def visualize_masks(self, image: np.ndarray, masks: List[np.ndarray], labels: List[str], 
                        frame_idx: int):
         """Visualize segmentation masks and save to file."""
+        if self.debug_visualizer:
+            debug_dir = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}"
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            self.debug_visualizer.debug_dir = debug_dir
+            
+            self.debug_visualizer.visualize_masks(image, masks, labels, frame_idx)
+    
+    def _log_processing_step(self, message: str, frame_idx: int = None, level: str = "info"):
+        """Simplified logging for processing steps."""
+        if self.debug_mode:
+            prefix = f"Frame {frame_idx}: " if frame_idx is not None else ""
+            getattr(logger, level)(f"{prefix}{message}")
+    
+    def _save_failed_segmentations(self, failed_masks: List[Dict], frame_idx: int):
+        """Save failed segmentation details to debug file."""
         if not self.save_debug_visualizations:
             return
             
+        failed_path = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}" / "failed_segmentations.txt"
+        failed_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(failed_path, 'w') as f:
+            f.write(f"Failed to segment {len(failed_masks)} objects:\n\n")
+            for fail in failed_masks:
+                f.write(f"Label: {fail['label']}\n")
+                f.write(f"Reason: {fail['reason']}\n")
+                if 'box' in fail:
+                    f.write(f"Box: {fail['box']}\n")
+                f.write("\n")
+
+    def _save_frame_debug_info(self, frame_idx: int, data: dict):
+        """Save debug information for a frame."""
+        if not self.save_debug_visualizations:
+            return
+        
         debug_dir = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}"
         debug_dir.mkdir(parents=True, exist_ok=True)
         
-        # Create overlay image
-        overlay = image.copy()
-        h, w = image.shape[:2]
+        # Save vocabulary if provided
+        if 'vocabulary' in data:
+            with open(debug_dir / "vocabulary.txt", 'w') as f:
+                f.write(f"Searching for {len(data['vocabulary'])} objects:\n")
+                for word in sorted(data['vocabulary']):
+                    f.write(f"- {word}\n")
         
-        # Create separate mask for each instance
-        for idx, (mask, label) in enumerate(zip(masks, labels)):
-            # Create colored mask
-            mask_color = np.zeros_like(image)
-            color = np.array([
-                (idx * 67) % 255,
-                (idx * 131) % 255,
-                (idx * 193) % 255
-            ])
-            mask_color[mask > 0] = color
-            
-            # Apply to overlay
-            overlay[mask > 0] = overlay[mask > 0] * 0.5 + mask_color[mask > 0] * 0.5
-            
-            # Save individual mask
-            mask_path = debug_dir / f"mask_{idx:02d}_{label}.png"
-            cv2.imwrite(str(mask_path), (mask * 255).astype(np.uint8))
-        
-        # Add labels
-        for idx, (mask, label) in enumerate(zip(masks, labels)):
-            # Find mask center
-            mask_indices = np.where(mask > 0)
-            if len(mask_indices[0]) > 0:
-                cy = int(np.mean(mask_indices[0]))
-                cx = int(np.mean(mask_indices[1]))
-                cv2.putText(overlay, label, (cx-20, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-        
-        # Save overlay
-        overlay_path = debug_dir / "segmentation_overlay.jpg"
-        cv2.imwrite(str(overlay_path), overlay)
-        
-        # Save summary
-        summary_path = debug_dir / "segmentation_summary.txt"
-        with open(summary_path, 'w') as f:
-            f.write(f"Frame {frame_idx} - Segmentation Results\n")
-            f.write(f"Total masks: {len(masks)}\n\n")
-            for idx, (mask, label) in enumerate(zip(masks, labels)):
-                mask_pixels = np.sum(mask > 0)
-                mask_percentage = (mask_pixels / (h * w)) * 100
-                f.write(f"{idx+1}. {label}: {mask_pixels} pixels ({mask_percentage:.2f}% of image)\n")
+        # Save filtered detections if provided
+        if 'filtered_detections' in data and data['filtered_detections']:
+            with open(debug_dir / "filtered_detections.txt", 'w') as f:
+                f.write(f"Filtered {len(data['filtered_detections'])} detections:\n\n")
+                for det in data['filtered_detections']:
+                    f.write(f"Vocabulary: {det['vocab_word']}\n")
+                    f.write(f"Detected: '{det['detected_phrase']}' (score: {det['score']:.3f})\n")
+                    f.write(f"Reason: {det['reason']}\n\n")
     
     def find_model_paths(self) -> Tuple[str, str, str, str]:
         """Automatically find model paths - simplified version."""
@@ -354,18 +313,12 @@ class RealGroundedSAM2Processor:
         if image.dtype != np.uint8:
             image = (image * 255 if image.max() <= 1.0 else image).astype(np.uint8)
         
-        # Save original image for debugging
+        # Save debug info
         if self.save_debug_visualizations:
             debug_dir = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}"
             debug_dir.mkdir(parents=True, exist_ok=True)
             cv2.imwrite(str(debug_dir / "original_image.jpg"), image)
-            
-            # Log vocabulary being searched
-            vocab_path = debug_dir / "vocabulary.txt"
-            with open(vocab_path, 'w') as f:
-                f.write(f"Searching for {len(self.vocabulary)} objects:\n")
-                for vocab_word in sorted(self.vocabulary):
-                    f.write(f"- {vocab_word}\n")
+            self._save_frame_debug_info(frame_idx, {'vocabulary': self.vocabulary})
         
         # Apply transforms
         image_transformed, _ = self.transform(Image.fromarray(image), None)
@@ -392,11 +345,9 @@ class RealGroundedSAM2Processor:
                     device=self.device
                 )
             
-            # Log all raw detections for this vocabulary word
-            if self.save_debug_visualizations and len(boxes) > 0:
-                logger.info(f"Frame {frame_idx}: {vocab_word} - {len(boxes)} raw detections")
-                for box, score, phrase in zip(boxes, logits, phrases):
-                    logger.info(f"  - '{phrase}' (score: {score:.3f})")
+            # Log detections for this vocabulary word
+            if len(boxes) > 0:
+                self._log_processing_step(f"{vocab_word} - {len(boxes)} raw detections", frame_idx)
             
             # Filter and keep valid detections
             for box, score, phrase in zip(boxes, logits, phrases):
@@ -420,14 +371,8 @@ class RealGroundedSAM2Processor:
                 all_scores.append(score)
         
         # Save filtered detections log
-        if self.save_debug_visualizations and filtered_detections:
-            filtered_path = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}" / "filtered_detections.txt"
-            with open(filtered_path, 'w') as f:
-                f.write(f"Filtered {len(filtered_detections)} detections:\n\n")
-                for det in filtered_detections:
-                    f.write(f"Vocabulary: {det['vocab_word']}\n")
-                    f.write(f"Detected: '{det['detected_phrase']}' (score: {det['score']:.3f})\n")
-                    f.write(f"Reason: {det['reason']}\n\n")
+        if filtered_detections:
+            self._save_frame_debug_info(frame_idx, {'filtered_detections': filtered_detections})
         
         if len(all_boxes) > 0:
             boxes = torch.stack(all_boxes)
@@ -445,15 +390,14 @@ class RealGroundedSAM2Processor:
             if self.save_debug_visualizations:
                 self.visualize_detections(image, boxes_xyxy_before, all_labels, logits, 
                                         frame_idx, "grounding")
-                logger.info(f"Frame {frame_idx}: {len(boxes)} detections before deduplication")
             
             # Deduplicate boxes with high IoU
             num_before = len(boxes)
             boxes, logits, all_labels = self._deduplicate_boxes(boxes, logits, all_labels)
             num_after = len(boxes)
             
-            if self.save_debug_visualizations and num_before != num_after:
-                logger.info(f"Frame {frame_idx}: Deduplication reduced {num_before} -> {num_after} detections")
+            if num_before != num_after:
+                self._log_processing_step(f"Deduplication reduced {num_before} -> {num_after} detections", frame_idx)
             
             # Convert boxes from cxcywh to xyxy pixel coordinates
             boxes_xyxy = torch.zeros_like(boxes)
@@ -473,14 +417,7 @@ class RealGroundedSAM2Processor:
             return boxes_xyxy, all_labels, logits
         
         # No detections found
-        if self.save_debug_visualizations:
-            no_detection_path = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}" / "no_detections.txt"
-            with open(no_detection_path, 'w') as f:
-                f.write(f"No detections found for frame {frame_idx}\n")
-                f.write(f"Vocabulary size: {len(self.vocabulary)}\n")
-                f.write(f"Confidence threshold: {self.confidence_threshold}\n")
-                if filtered_detections:
-                    f.write(f"\nFiltered {len(filtered_detections)} detections that didn't match vocabulary\n")
+        self._log_processing_step("No detections found", frame_idx)
         
         return torch.zeros((0, 4)), [], torch.zeros(0)
     
@@ -629,308 +566,27 @@ class RealGroundedSAM2Processor:
         
         return [masks[i] for i in keep], [labels[i] for i in keep]
     
-    def _merge_duplicate_labels(self, masks: List[np.ndarray], labels: List[str], scores: List[float], frame_idx: int) -> Tuple[List[np.ndarray], List[str], List[float]]:
-        """Merge masks with duplicate labels, keeping the best one per label."""
-        if len(masks) <= 1:
-            return masks, labels, scores
-        
-        from collections import defaultdict
-        
-        # Group masks by label
-        label_groups = defaultdict(list)
-        for i, label in enumerate(labels):
-            label_groups[label].append(i)
-        
-        # Process each label group
-        final_masks = []
-        final_labels = []
-        final_scores = []
-        
-        for label, indices in sorted(label_groups.items()):
-            if len(indices) == 1:
-                # No duplicates for this label
-                final_masks.append(masks[indices[0]])
-                final_labels.append(label)
-                final_scores.append(scores[indices[0]])
-            else:
-                # Multiple masks for same label - keep the one with highest score
-                group_scores = [scores[i] for i in indices]
-                best_idx = indices[np.argmax(group_scores)]
-                final_masks.append(masks[best_idx])
-                final_labels.append(label)
-                final_scores.append(scores[best_idx])
-                
-                if self.save_debug_visualizations:
-                    mask_areas = [np.sum(masks[i] > 0) for i in indices]
-                    logger.info(f"Frame {frame_idx}: Merged {len(indices)} '{label}' masks, "
-                              f"kept mask with score {max(group_scores):.3f} and {mask_areas[indices.index(best_idx)]} pixels")
-        
-        return final_masks, final_labels, final_scores
     
-    def _resolve_cross_label_overlaps(self, masks: List[np.ndarray], labels: List[str], scores: List[float], frame_idx: int) -> Tuple[List[np.ndarray], List[str]]:
-        """Resolve overlaps between masks with different labels (e.g., wall plug vs switch on same object)."""
-        if len(masks) <= 1:
-            return masks, labels
-        
-        # Use provided confidence scores
-        confidence_scores = scores
-        
-        # Track which masks to keep
-        n_masks = len(masks)
-        keep_mask = [True] * n_masks
-        removal_log = []
-        
-        # Compare all pairs of masks
-        for i in range(n_masks):
-            if not keep_mask[i]:
-                continue
-                
-            for j in range(i + 1, n_masks):
-                if not keep_mask[j]:
-                    continue
-                
-                # Skip if same label (already handled by _merge_duplicate_labels)
-                if labels[i] == labels[j]:
-                    continue
-                
-                # Calculate IoU and containment
-                mask_i = masks[i] > 0.5
-                mask_j = masks[j] > 0.5
-                
-                intersection = np.sum(mask_i & mask_j)
-                union = np.sum(mask_i | mask_j)
-                
-                if union == 0:
-                    continue
-                
-                iou = intersection / union
-                
-                # Calculate containment ratios
-                area_i = np.sum(mask_i)
-                area_j = np.sum(mask_j)
-                containment_i_in_j = intersection / area_i if area_i > 0 else 0
-                containment_j_in_i = intersection / area_j if area_j > 0 else 0
-                
-                # Remove if high overlap OR one mask is mostly contained in the other
-                if iou > 0.8 or containment_i_in_j > 0.9 or containment_j_in_i > 0.9:
-                    # Keep the one with higher confidence (larger mask area)
-                    if confidence_scores[i] > confidence_scores[j]:
-                        keep_mask[j] = False
-                        removal_log.append({
-                            'removed': labels[j],
-                            'kept': labels[i],
-                            'iou': iou,
-                            'score_removed': confidence_scores[j],
-                            'score_kept': confidence_scores[i]
-                        })
-                    else:
-                        keep_mask[i] = False
-                        removal_log.append({
-                            'removed': labels[i],
-                            'kept': labels[j],
-                            'iou': iou,
-                            'score_removed': confidence_scores[i],
-                            'score_kept': confidence_scores[j]
-                        })
-                        break  # i is removed, no need to check more pairs with i
-        
-        # Filter masks and labels
-        final_masks = [mask for mask, keep in zip(masks, keep_mask) if keep]
-        final_labels = [label for label, keep in zip(labels, keep_mask) if keep]
-        
-        # Log removals
-        if removal_log and self.save_debug_visualizations:
-            logger.info(f"Frame {frame_idx}: Cross-label deduplication removed {len(removal_log)} masks:")
-            for removal in removal_log:
-                logger.info(f"  - Removed '{removal['removed']}' (score: {removal['score_removed']:.3f}) "
-                          f"in favor of '{removal['kept']}' (score: {removal['score_kept']:.3f}) "
-                          f"with IoU: {removal['iou']:.3f}")
-        
-        return final_masks, final_labels
-    
-    def _resolve_label_conflicts(self, all_proposals: List[Dict], frame_idx: int) -> Tuple[List[np.ndarray], List[str]]:
-        """Resolve label conflicts when multiple labels claim the same physical region."""
-        if not all_proposals:
-            return [], []
-        
-        # Group proposals by mask similarity (IoU > 0.8)
-        groups = []
-        used = set()
-        
-        for i, prop_i in enumerate(all_proposals):
-            if i in used:
-                continue
-                
-            # Start new group
-            group = [i]
-            used.add(i)
-            
-            # Find all similar masks
-            for j, prop_j in enumerate(all_proposals):
-                if j <= i or j in used:
-                    continue
-                    
-                # Calculate IoU between masks
-                intersection = np.sum((prop_i['mask'] > 0.5) & (prop_j['mask'] > 0.5))
-                union = np.sum((prop_i['mask'] > 0.5) | (prop_j['mask'] > 0.5))
-                iou = intersection / union if union > 0 else 0
-                
-                if iou > 0.8:  # High overlap - same physical object
-                    group.append(j)
-                    used.add(j)
-            
-            groups.append(group)
-        
-        # Select best label for each group
-        final_masks = []
-        final_labels = []
-        
-        if self.save_debug_visualizations:
-            logger.info(f"Frame {frame_idx}: Found {len(groups)} mask groups from {len(all_proposals)} proposals")
-        
-        for group_idx, group in enumerate(groups):
-            # Calculate combined score for each proposal in the group
-            best_score = -1
-            best_idx = None
-            
-            group_labels = []
-            for idx in group:
-                prop = all_proposals[idx]
-                
-                # Combined score: grounding confidence * SAM2 quality * coverage ratio
-                combined_score = (prop['grounding_score'] * 
-                                prop['sam2_score'] * 
-                                (0.5 + 0.5 * prop['coverage_ratio']))  # coverage weighted less
-                
-                group_labels.append(f"{prop['label']}({prop['grounding_score']:.2f})")
-                
-                if combined_score > best_score:
-                    best_score = combined_score
-                    best_idx = idx
-            
-            if best_idx is not None:
-                best_prop = all_proposals[best_idx]
-                final_masks.append(best_prop['mask'])
-                final_labels.append(best_prop['label'])
-                
-                if self.save_debug_visualizations and len(group) > 1:
-                    logger.info(f"  Group {group_idx}: Selected '{best_prop['label']}' "
-                              f"(score: {best_score:.3f}) from candidates: {', '.join(group_labels)}")
-        
-        # Apply final mask deduplication to handle any remaining overlaps
-        if len(final_masks) > 1:
-            final_masks, final_labels = self._deduplicate_masks(final_masks, final_labels, frame_idx)
-            if self.save_debug_visualizations:
-                logger.info(f"Frame {frame_idx}: After final deduplication: {len(final_masks)} masks")
-        
-        return final_masks, final_labels
     
     def _save_sam2_raw_output(self, image: np.ndarray, masks_proposals: np.ndarray, 
                              scores: np.ndarray, box: np.ndarray, label: str,
                              frame_idx: int, box_idx: int):
         """Save raw SAM2 segmentation proposals before any filtering."""
-        debug_dir = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}" / "sam2_raw"
-        debug_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Find best mask index (highest score)
-        best_idx = np.argmax(scores)
-        
-        # Create a figure showing all proposals
-        h, w = image.shape[:2]
-        combined = np.zeros((h, w * 4, 3), dtype=np.uint8)
-        
-        # Original image with box
-        img_with_box = image.copy()
-        x1, y1, x2, y2 = box.astype(int)
-        cv2.rectangle(img_with_box, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        cv2.putText(img_with_box, label, (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        combined[:, :w] = img_with_box
-        
-        # Show each mask proposal
-        colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]  # Red, Green, Blue
-        for i in range(min(3, len(masks_proposals))):
-            mask = masks_proposals[i].squeeze()
-            if isinstance(mask, torch.Tensor):
-                mask = mask.cpu().numpy()
+        if self.debug_visualizer:
+            # Convert arrays to lists and prepare data
+            boxes = [box.tolist()]
+            labels = [label]
+            scores_list = scores.tolist() if hasattr(scores, 'tolist') else scores
+            masks = [masks_proposals]  # Pass raw proposals to visualizer
             
-            # Create colored overlay
-            overlay = image.copy()
-            mask_bool = mask > 0.5
-            overlay[mask_bool] = overlay[mask_bool] * 0.5 + np.array(colors[i]) * 0.5
-            
-            # Add score text and highlight the selected mask
-            score_text = f"Score: {scores[i]:.3f}"
-            if i == best_idx:
-                score_text += " [SELECTED]"
-                # Add border to selected mask
-                cv2.rectangle(overlay, (0, 0), (w-1, h-1), colors[i], 3)
-            cv2.putText(overlay, score_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-            
-            combined[:, (i+1)*w:(i+2)*w] = overlay
-        
-        # Save combined image
-        output_path = debug_dir / f"box_{box_idx:03d}_{label}_proposals.jpg"
-        cv2.imwrite(str(output_path), combined)
-        
-        # Also save individual masks
-        for i in range(len(masks_proposals)):
-            mask = masks_proposals[i].squeeze()
-            if isinstance(mask, torch.Tensor):
-                mask = mask.cpu().numpy()
-            mask_path = debug_dir / f"box_{box_idx:03d}_{label}_mask_{i}_score_{scores[i]:.3f}.png"
-            cv2.imwrite(str(mask_path), (mask * 255).astype(np.uint8))
+            self.debug_visualizer.save_sam2_raw_output(image, boxes, masks, labels, scores_list, frame_idx)
     
     def _save_all_sam2_masks(self, image: np.ndarray, masks: List[np.ndarray], 
                             labels: List[str], frame_idx: int, stage: str):
         """Save visualization of all SAM2 masks combined."""
-        debug_dir = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}" / "sam2_combined"
-        debug_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Create overlay with all masks
-        overlay = image.copy()
-        h, w = image.shape[:2]
-        
-        # Create instance segmentation map
-        instance_map = np.zeros((h, w), dtype=np.int32)
-        
-        # Apply each mask with a different color
-        for idx, (mask, label) in enumerate(zip(masks, labels)):
-            # Random color for each instance
-            color = np.array([
-                (idx * 67) % 255,
-                (idx * 131) % 255,
-                (idx * 193) % 255
-            ])
-            
-            # Apply mask
-            mask_bool = mask > 0
-            overlay[mask_bool] = overlay[mask_bool] * 0.3 + color * 0.7
-            instance_map[mask_bool] = idx + 1
-            
-            # Add label at centroid
-            if np.any(mask_bool):
-                y_coords, x_coords = np.where(mask_bool)
-                cy, cx = int(np.mean(y_coords)), int(np.mean(x_coords))
-                cv2.putText(overlay, f"{idx}: {label}", (cx-30, cy), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-        
-        # Save overlay
-        output_path = debug_dir / f"all_masks_{stage}.jpg"
-        cv2.imwrite(str(output_path), overlay)
-        
-        # Save instance map
-        instance_path = debug_dir / f"instance_map_{stage}.png"
-        cv2.imwrite(str(instance_path), instance_map.astype(np.uint8))
-        
-        # Save summary
-        summary_path = debug_dir / f"summary_{stage}.txt"
-        with open(summary_path, 'w') as f:
-            f.write(f"SAM2 Segmentation Summary - {stage}\n")
-            f.write(f"Total masks: {len(masks)}\n\n")
-            for idx, (mask, label) in enumerate(zip(masks, labels)):
-                mask_pixels = np.sum(mask > 0)
-                mask_percent = (mask_pixels / (h * w)) * 100
-                f.write(f"{idx}: {label} - {mask_pixels} pixels ({mask_percent:.2f}%)\n")
+        if self.debug_visualizer:
+            # Use the existing visualize_masks method for combined mask visualization
+            self.visualize_masks(image, masks, labels, frame_idx)
     
     def segment_frame_with_boxes(self, image: np.ndarray, boxes: torch.Tensor, 
                                 labels: List[str], frame_idx: int) -> Dict:
@@ -960,9 +616,7 @@ class RealGroundedSAM2Processor:
         if len(boxes) > 0:
             input_boxes = boxes.cpu().numpy()
             
-            # Log segmentation attempt
-            if self.save_debug_visualizations:
-                logger.info(f"Frame {frame_idx}: Attempting to segment {len(input_boxes)} objects")
+            self._log_processing_step(f"Attempting to segment {len(input_boxes)} objects", frame_idx)
             
             # Process each box
             for box_idx, (box, label) in enumerate(zip(input_boxes, labels)):
@@ -987,8 +641,7 @@ class RealGroundedSAM2Processor:
                     mask = masks_proposals[best_mask_idx]
                     score = scores[best_mask_idx]
                     
-                    if self.save_debug_visualizations:
-                        logger.info(f"Frame {frame_idx}: Selected mask {best_mask_idx} for {label} with score {score:.3f}")
+                    self._log_processing_step(f"Selected mask {best_mask_idx} for {label} with score {score:.3f}", frame_idx)
                     
                     # Handle mask dimensions properly
                     if mask.ndim == 4:  # (1, 1, H, W)
@@ -1013,16 +666,15 @@ class RealGroundedSAM2Processor:
                             'reason': 'Empty mask (0 pixels)',
                             'box': box.tolist()
                         })
-                        if self.save_debug_visualizations:
-                            logger.warning(f"Frame {frame_idx}: Empty mask for {label}")
+                        self._log_processing_step(f"Empty mask for {label}", frame_idx, "warning")
                         continue
                     
                     # Check mask quality
                     h, w = mask.shape
                     mask_percentage = (mask_pixels / (h * w)) * 100
                     
-                    if self.save_debug_visualizations and mask_percentage > 50:
-                        logger.warning(f"Frame {frame_idx}: Large mask for {label}: {mask_percentage:.1f}% of image")
+                    if mask_percentage > 50:
+                        self._log_processing_step(f"Large mask for {label}: {mask_percentage:.1f}% of image", frame_idx, "warning")
                     
                     masks.append(mask)
                     valid_labels.append(label)
@@ -1032,8 +684,7 @@ class RealGroundedSAM2Processor:
                     else:
                         valid_scores.append(mask_pixels)  # Fallback to area
                     
-                    if self.save_debug_visualizations:
-                        logger.info(f"Frame {frame_idx}: Successfully segmented {label} ({mask_pixels} pixels, {mask_percentage:.1f}%)")
+                    self._log_processing_step(f"Successfully segmented {label} ({mask_pixels} pixels, {mask_percentage:.1f}%)", frame_idx)
                     
                 except Exception as e:
                     logger.error(f"Error segmenting {label}: {e}")
@@ -1045,37 +696,26 @@ class RealGroundedSAM2Processor:
                     continue
         
         # Save failed segmentations log
-        if self.save_debug_visualizations and failed_masks:
-            failed_path = DEBUG_OUTPUT_DIR / f"frame_{frame_idx:06d}" / "failed_segmentations.txt"
-            with open(failed_path, 'w') as f:
-                f.write(f"Failed to segment {len(failed_masks)} objects:\n\n")
-                for fail in failed_masks:
-                    f.write(f"Label: {fail['label']}\n")
-                    f.write(f"Reason: {fail['reason']}\n")
-                    if 'box' in fail:
-                        f.write(f"Box: {fail['box']}\n")
-                    f.write("\n")
+        if failed_masks:
+            self._save_failed_segmentations(failed_masks, frame_idx)
         
         # Save all SAM2 masks before merging duplicates (if enabled)
         if self.save_debug_visualizations and len(masks) > 0:
             self._save_all_sam2_masks(image, masks, valid_labels, frame_idx, "before_merge")
         
-        # Merge duplicate labels - keep best mask per label
+        # Deduplicate masks using consolidated logic
         if len(masks) > 0:
-            masks, valid_labels, valid_scores = self._merge_duplicate_labels(masks, valid_labels, valid_scores, frame_idx)
-            logger.info(f"Frame {frame_idx}: After merging duplicate labels: {len(masks)} masks")
-            
-            # Resolve cross-label overlaps (e.g., wall plug vs switch)
-            masks, valid_labels = self._resolve_cross_label_overlaps(masks, valid_labels, valid_scores, frame_idx)
-            logger.info(f"Frame {frame_idx}: After cross-label deduplication: {len(masks)} masks")
+            masks, valid_labels, valid_scores = self.mask_deduplicator.deduplicate_masks(
+                masks, valid_labels, valid_scores, frame_idx
+            )
+            self._log_processing_step(f"After deduplication: {len(masks)} masks", frame_idx)
         
         # Visualize successful masks
         if self.save_debug_visualizations and len(masks) > 0:
             self.visualize_masks(image, masks, valid_labels, frame_idx)
             self._save_all_sam2_masks(image, masks, valid_labels, frame_idx, "after_merge")
             
-            # Log summary
-            logger.info(f"Frame {frame_idx}: Segmentation complete - {len(masks)}/{len(boxes)} successful")
+            self._log_processing_step(f"Segmentation complete - {len(masks)}/{len(boxes)} successful", frame_idx)
         
         return {
             'masks': masks,
