@@ -1,4 +1,4 @@
-# Improved 3D tracking with label filtering to fix empty label issues
+# Semantic SLAM with label-based tracking (no 3D tracking)
 
 inherit: "config/replica_semantic_auto.yaml"
 
@@ -20,60 +20,9 @@ semantic_segmentation:
     min_phrase_length: 2       # Require at least 2 characters (filters "" and "a")
     empty_label_max_size: 0.4  # Only filter large empty detections (>40% of image)
 
-# Object tracking configuration - Improved parameters
+# Object tracking configuration - Disabled (no 3D tracking)
 object_tracking:
-  enabled: true
-  use_3d_tracking: true
-  use_global_tracking: true  # Enable sliding window global matching
-  
-  # Sliding window parameters - increased for better matching
-  sliding_window_size: 8  # Increased from 5 for better temporal context
-  global_search_tracks: 50  # Increased from 20 to search more candidates
-  
-  # 3D Tracking parameters - more permissive for better matching
-  geometric_iou_threshold: 0.1  # Further reduced for partial object matching
-  centroid_distance_threshold: 1.5  # Increased for furniture and partial objects
-  max_lost_frames: 50  # Increased from 30 for better track persistence
-  min_observations: 1
-  
-  # Partial object matching parameters
-  partial_object_containment_threshold: 0.7  # If 70% contained, consider same object
-  early_observation_growth_factor: 5.0  # Allow 5x size growth for new tracks
-  
-  # Matching weights - adjusted for better stability
-  weight_iou: 0.4  # Reduced from 0.5
-  weight_centroid: 0.4  # Increased from 0.3
-  weight_size: 0.2  # Keep same
-  
-  # 3D Bounding box extraction - more permissive
-  min_points_ratio: 0.0001  # Reduced from 0.0005 to include sparse objects
-  outlier_std_factor: 3.5  # Increased from 3.0 to be more inclusive
-  
-  # Depth range - expanded for better coverage
-  min_depth: 0.05  # Reduced from 0.1m
-  max_depth: 100.0  # Increased from 50m
-  
-  # 2D fallback parameters
-  iou_threshold_2d: 0.20  # Reduced from 0.25
-  max_center_distance: 150  # Increased from 120
-  max_area_change_ratio: 4.0  # Increased from 3.5
-  
-  # Track management
-  max_tracks: 2000  # Increased from 1000
-  
-  # World-centric tracking parameters
-  use_world_coordinates: true
-  
-  # World-space distance thresholds (meters)
-  world_distance_thresholds:
-    default: 0.5      # Increased from 0.3
-    furniture: 1.0    # Increased from 0.5 - chair, table, sofa, bed, desk
-    large: 2.0        # Increased from 1.0 - wall, floor, ceiling
-    small: 0.3        # Increased from 0.2 - bottle, cup, mouse, keyboard
-  
-  # Position stability monitoring
-  max_position_variance: 0.2  # Flag tracks that move >20cm in world space
-  position_variance_warning: 0.1  # Warn if objects move >10cm
+  enabled: false
   
   # Debug and logging
   save_tracking_decisions: true

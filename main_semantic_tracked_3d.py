@@ -1,4 +1,4 @@
-"""Main script for semantic SLAM with 3D geometric tracking."""
+"""Main script for semantic SLAM without tracking."""
 
 import argparse
 import datetime
@@ -33,11 +33,10 @@ import queue
 
 # Import semantic components
 from mast3r_slam.semantic_frame import SharedSemanticKeyframes, create_semantic_frame
-from mast3r_slam.grounded_sam2_real_3d import start_real_grounded_sam2_processor_3d
+from mast3r_slam.grounded_sam2_real import start_real_grounded_sam2_processor
 from mast3r_slam.grounded_sam2_config import GroundedSAM2ModelSelector
 
-# Import object tracking
-from mast3r_slam.geometric_3d_tracker import Geometric3DTracker
+# No tracking imports needed
 
 
 def setup_logging(verbose=False):
@@ -198,7 +197,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", default="datasets/33")
-    parser.add_argument("--config", default="config/semantic_slam_tracked_3d.yaml")  # Use 3D tracking config
+    parser.add_argument("--config", default="config/semantic_slam.yaml")  # Use basic semantic config
     parser.add_argument("--save-as", default="tracked_3d")  # Different default name
     parser.add_argument("--no-viz", action="store_true")
     parser.add_argument("--calib", default="")
@@ -245,7 +244,7 @@ if __name__ == "__main__":
     object_tracker = None
     
     if config.get("semantic_segmentation", {}).get("enabled", False):
-        logger.info("Initializing semantic segmentation with 3D tracking...")
+        logger.info("Initializing semantic segmentation without tracking...")
         semantic_keyframes = SharedSemanticKeyframes(manager, max_keyframes=1000, h=h, w=w)
         semantic_frame_queue = manager.Queue()
         semantic_result_queue = manager.Queue()
@@ -289,7 +288,7 @@ if __name__ == "__main__":
         # Get device and model settings
         semantic_device = config["semantic_segmentation"]["grounded_sam2"].get("device", "cuda:1")
         
-        logger.info("Using Grounded-SAM2 processor with 3D tracking")
+        logger.info("Using Grounded-SAM2 processor without tracking")
         # Configure model selector based on config
         model_selector = GroundedSAM2ModelSelector(
             target_fps=15,
@@ -303,7 +302,7 @@ if __name__ == "__main__":
         model_selector.sam2_model = sam2_model
         model_selector.grounding_model = grounding_model
         
-        # Start Grounded-SAM2 processor with 3D tracking
+        # Start Grounded-SAM2 processor with label-based tracking
         # Pass model directories explicitly
         sam2_dir = str(Path.home() / "models" / "segment-anything-2")
         grounding_dir = str(Path.home() / "models" / "GroundingDINO")
@@ -317,37 +316,30 @@ if __name__ == "__main__":
         deduplication_iou_threshold = grounded_sam2_config.get("deduplication_iou_threshold", 0.9)
         mask_refinement_threshold = grounded_sam2_config.get("mask_refinement_threshold", 0.7)
         
-        # Initialize object tracker if enabled
-        tracking_config = None
-        if config.get("object_tracking", {}).get("enabled", False):
-            logger.info("Object tracking enabled with 3D geometric matching")
-            tracking_config = config["object_tracking"]
-            tracking_config["use_3d_tracking"] = True  # Enable 3D tracking
-            object_tracker = Geometric3DTracker(tracking_config)  # Keep for saving decisions later
-        
-        semantic_processor = start_real_grounded_sam2_processor_3d(
+        # No tracking - just pure semantic segmentation
+        semantic_processor = start_real_grounded_sam2_processor(
             semantic_frame_queue, 
             semantic_result_queue,
             vocabulary,
             semantic_device,
             model_selector,
             confidence_threshold=confidence_threshold,
+            object_tracker=None,  # No tracking
+            tracking_config=None,  # No tracking config
             dtype=dtype,
             sam2_checkpoint_dir=sam2_dir,
             grounding_dino_checkpoint_dir=grounding_dir,
             debug_mode=debug_mode,
             save_debug_visualizations=save_debug_visualizations,
             deduplication_iou_threshold=deduplication_iou_threshold,
-            mask_refinement_threshold=mask_refinement_threshold,
-            tracking_config=tracking_config  # Pass config with 3D enabled
+            mask_refinement_threshold=mask_refinement_threshold
         )
     
     # Start continuous semantic result processor thread
     semantic_result_thread = None
     terminate_semantic_thread = False
     
-    # Collect tracking decisions from all frames
-    all_tracking_decisions = []
+    # No tracking decisions to collect
     
     def continuous_semantic_processor():
         """Process semantic results continuously without blocking main loop"""
@@ -360,10 +352,7 @@ if __name__ == "__main__":
                 
                 logger.info(f"Received semantic result for frame {semantic_data.get('frame_id')} with {len(semantic_data.get('instance_ids', []))} instances")
                 
-                # Collect tracking decisions if present
-                if 'tracking_decisions' in semantic_data:
-                    all_tracking_decisions.extend(semantic_data['tracking_decisions'])
-                    semantic_data.pop('tracking_decisions')  # Remove from data to avoid storing in keyframes
+                # No tracking decisions to collect
                 
                 if kf_idx is not None:
                     # Direct mapping - no search needed!
@@ -601,13 +590,7 @@ if __name__ == "__main__":
         save_dir, seq_name = eval.prepare_savedir(args, dataset)
         eval.save_traj(save_dir, f"{seq_name}.txt", dataset.timestamps, keyframes)
         
-        # Save tracking decisions if available
-        if all_tracking_decisions:
-            decisions_file = save_dir / "tracking_decisions_3d.json"
-            import json
-            with open(decisions_file, 'w') as f:
-                json.dump(all_tracking_decisions, f, indent=2)
-            logger.info(f"Saved {len(all_tracking_decisions)} tracking decisions to {decisions_file}")
+        # No tracking decisions to save
         
         # Save regular reconstruction
         eval.save_reconstruction(
@@ -649,16 +632,12 @@ if __name__ == "__main__":
             from mast3r_slam.dense_semantic_reconstruction_tracked_v2 import create_dense_semantic_reconstruction_tracked
             
             logger.info("\n" + "="*60)
-            logger.info("Creating Dense Semantic Reconstruction with 3D Tracking")
+            logger.info("Creating Dense Semantic Reconstruction")
             logger.info("="*60)
             
-            # Get depth range from tracking config if available
+            # Use default depth range (no tracking config)
             min_depth = 0.1
             max_depth = 50.0
-            if tracking_config and 'min_depth' in tracking_config:
-                min_depth = tracking_config['min_depth']
-            if tracking_config and 'max_depth' in tracking_config:
-                max_depth = tracking_config['max_depth']
             
             dense_result = create_dense_semantic_reconstruction_tracked(
                 keyframes,
@@ -668,7 +647,8 @@ if __name__ == "__main__":
                 debug=True,
                 semantic_backend=semantic_backend,
                 min_depth=min_depth,
-                max_depth=max_depth
+                max_depth=max_depth,
+                c_conf_threshold=last_msg.C_conf_threshold  # Use SLAM confidence threshold
             )
             
             if dense_result:
@@ -678,17 +658,7 @@ if __name__ == "__main__":
                 for label, stats in sorted(dense_result['label_stats'].items()):
                     logger.info(f"  {label}: {stats['count']:,} points ({stats['percentage']:.1f}%)")
                 
-                # Create semantic overlay visualization only if we have semantic data
-                from mast3r_slam.semantic_overlay import create_semantic_overlay
-                
-                overlay_stats = create_semantic_overlay(
-                    str(save_dir / f"{seq_name}.ply"),
-                    str(save_dir / f"{seq_name}_semantic_dense_tracked_3d.ply"),
-                    str(save_dir / f"{seq_name}_semantic_overlay_tracked_3d.ply"),
-                    distance_threshold=0.005  # 5mm threshold
-                )
-                
-                logger.info(f"Overlay visualization: {overlay_stats['matched_points']:,}/{overlay_stats['total_points']:,} points ({overlay_stats['match_percentage']:.1f}%) have semantic colors")
+                logger.info("High-quality semantic reconstruction uses SLAM confidence filtering for clean point clouds")
             else:
                 logger.warning("No semantic data available for reconstruction")
             

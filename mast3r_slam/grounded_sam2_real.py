@@ -288,9 +288,10 @@ class RealGroundedSAM2Processor:
             self.grounding_dino = load_model(grounding_cfg, grounding_ckpt, device=self.device)
             self.grounding_dino.eval()
             
-            # Initialize transform
+            # Initialize transform to match MAST3R's 512px resolution
+            # Using 512 for long side to maintain consistency with MAST3R processing
             self.transform = T.Compose([
-                T.RandomResize([800], max_size=1333),
+                T.RandomResize([512], max_size=512),  # Match MAST3R's 512px processing
                 T.ToTensor(),
                 T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
             ])

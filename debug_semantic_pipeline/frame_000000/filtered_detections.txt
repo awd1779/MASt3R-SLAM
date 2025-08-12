@@ -1,118 +1,146 @@
-Filtered 29 detections:
+Filtered 36 detections:
 
-Vocabulary: book
-Detected: '' (score: 0.244)
+Vocabulary: blanket
+Detected: '' (score: 0.232)
+Reason: Empty label (length=0, area=0.19)
+
+Vocabulary: blanket
+Detected: '' (score: 0.212)
 Reason: Empty label (length=0, area=0.00)
 
 Vocabulary: book
-Detected: '' (score: 0.201)
+Detected: '' (score: 0.228)
 Reason: Empty label (length=0, area=0.00)
 
 Vocabulary: book
 Detected: '' (score: 0.209)
+Reason: Empty label (length=0, area=0.12)
+
+Vocabulary: cabinet
+Detected: '' (score: 0.231)
+Reason: Empty label (length=0, area=0.04)
+
+Vocabulary: candle
+Detected: '' (score: 0.249)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: chair
+Detected: '' (score: 0.237)
+Reason: Empty label (length=0, area=0.04)
+
+Vocabulary: cushion
+Detected: '' (score: 0.246)
 Reason: Empty label (length=0, area=0.00)
 
 Vocabulary: cushion
-Detected: '' (score: 0.214)
-Reason: Empty label (length=0, area=0.00)
-
-Vocabulary: door
-Detected: '' (score: 0.245)
-Reason: Empty label (length=0, area=0.16)
-
-Vocabulary: door
-Detected: '' (score: 0.207)
-Reason: Empty label (length=0, area=0.01)
-
-Vocabulary: door
-Detected: '' (score: 0.231)
-Reason: Empty label (length=0, area=0.41)
+Detected: '' (score: 0.215)
+Reason: Empty label (length=0, area=0.04)
 
 Vocabulary: door
 Detected: '' (score: 0.227)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: door
+Detected: '' (score: 0.234)
 Reason: Empty label (length=0, area=0.02)
 
 Vocabulary: door
-Detected: '' (score: 0.222)
-Reason: Empty label (length=0, area=0.01)
-
-Vocabulary: pillar
-Detected: '' (score: 0.232)
-Reason: Empty label (length=0, area=0.00)
-
-Vocabulary: pillar
-Detected: '' (score: 0.208)
-Reason: Empty label (length=0, area=0.01)
-
-Vocabulary: pillar
-Detected: '' (score: 0.206)
-Reason: Empty label (length=0, area=0.01)
-
-Vocabulary: pillar
-Detected: '' (score: 0.232)
-Reason: Empty label (length=0, area=0.13)
-
-Vocabulary: pillar
-Detected: '' (score: 0.214)
-Reason: Empty label (length=0, area=0.03)
-
-Vocabulary: plant stand
-Detected: '' (score: 0.225)
-Reason: Empty label (length=0, area=0.01)
-
-Vocabulary: plant stand
-Detected: '' (score: 0.226)
-Reason: Empty label (length=0, area=0.16)
-
-Vocabulary: plate
-Detected: '' (score: 0.247)
-Reason: Empty label (length=0, area=0.00)
-
-Vocabulary: plate
-Detected: '' (score: 0.213)
-Reason: Empty label (length=0, area=0.01)
-
-Vocabulary: plate
 Detected: '' (score: 0.238)
+Reason: Empty label (length=0, area=0.12)
+
+Vocabulary: door
+Detected: '' (score: 0.248)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: indoor plant
+Detected: '' (score: 0.221)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: pillar
+Detected: '' (score: 0.226)
+Reason: Empty label (length=0, area=0.12)
+
+Vocabulary: pillar
+Detected: '' (score: 0.236)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: plate
+Detected: '' (score: 0.231)
 Reason: Empty label (length=0, area=0.00)
 
 Vocabulary: plate
-Detected: '' (score: 0.241)
-Reason: Empty label (length=0, area=0.13)
+Detected: 'a' (score: 0.270)
+Reason: Empty label (length=1, area=0.00)
 
 Vocabulary: plate
-Detected: '' (score: 0.230)
+Detected: '' (score: 0.244)
 Reason: Empty label (length=0, area=0.00)
 
-Vocabulary: pot
-Detected: '' (score: 0.245)
+Vocabulary: plate
+Detected: '' (score: 0.226)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: plate
+Detected: '' (score: 0.224)
 Reason: Empty label (length=0, area=0.01)
 
 Vocabulary: stool
-Detected: '' (score: 0.206)
-Reason: Empty label (length=0, area=0.02)
+Detected: '' (score: 0.229)
+Reason: Empty label (length=0, area=0.04)
+
+Vocabulary: stool
+Detected: '' (score: 0.224)
+Reason: Empty label (length=0, area=0.03)
 
 Vocabulary: switch
-Detected: '' (score: 0.237)
+Detected: '' (score: 0.239)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: switch
+Detected: '' (score: 0.236)
+Reason: Empty label (length=0, area=0.12)
+
+Vocabulary: switch
+Detected: '' (score: 0.225)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: switch
+Detected: '' (score: 0.213)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: switch
+Detected: '' (score: 0.222)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: switch
+Detected: '' (score: 0.200)
 Reason: Empty label (length=0, area=0.00)
 
 Vocabulary: vase
-Detected: '' (score: 0.242)
-Reason: Empty label (length=0, area=0.01)
+Detected: '' (score: 0.237)
+Reason: Empty label (length=0, area=0.00)
 
 Vocabulary: wall
-Detected: '' (score: 0.213)
-Reason: Empty label (length=0, area=0.47)
+Detected: '' (score: 0.250)
+Reason: Empty label (length=0, area=0.34)
 
 Vocabulary: wall
-Detected: '' (score: 0.208)
-Reason: Empty label (length=0, area=0.41)
+Detected: '' (score: 0.204)
+Reason: Empty label (length=0, area=0.39)
 
 Vocabulary: wall plug
-Detected: '' (score: 0.204)
+Detected: 'a' (score: 0.251)
+Reason: Empty label (length=1, area=0.00)
+
+Vocabulary: wall plug
+Detected: '' (score: 0.236)
 Reason: Empty label (length=0, area=0.00)
 
 Vocabulary: wall plug
-Detected: '' (score: 0.204)
+Detected: '' (score: 0.244)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: wall plug
+Detected: '' (score: 0.205)
 Reason: Empty label (length=0, area=0.00)
 

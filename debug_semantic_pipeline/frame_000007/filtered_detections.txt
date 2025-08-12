@@ -1,126 +1,106 @@
-Filtered 31 detections:
+Filtered 26 detections:
 
-Vocabulary: book
-Detected: '' (score: 0.246)
+Vocabulary: basket
+Detected: '' (score: 0.232)
 Reason: Empty label (length=0, area=0.01)
 
 Vocabulary: book
-Detected: '' (score: 0.221)
-Reason: Empty label (length=0, area=0.01)
-
-Vocabulary: candle
 Detected: '' (score: 0.203)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: cushion
+Detected: '' (score: 0.214)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: door
+Detected: '' (score: 0.235)
+Reason: Empty label (length=0, area=1.00)
+
+Vocabulary: floor
+Detected: '' (score: 0.235)
+Reason: Empty label (length=0, area=0.30)
+
+Vocabulary: floor
+Detected: '' (score: 0.227)
+Reason: Empty label (length=0, area=0.27)
+
+Vocabulary: floor
+Detected: '' (score: 0.201)
+Reason: Empty label (length=0, area=0.17)
+
+Vocabulary: indoor plant
+Detected: '' (score: 0.211)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: indoor plant
+Detected: '' (score: 0.225)
 Reason: Empty label (length=0, area=0.20)
 
-Vocabulary: ceiling
-Detected: '' (score: 0.246)
-Reason: Empty label (length=0, area=1.00)
-
-Vocabulary: cushion
-Detected: '' (score: 0.227)
-Reason: Empty label (length=0, area=0.02)
-
-Vocabulary: cushion
-Detected: '' (score: 0.232)
-Reason: Empty label (length=0, area=0.02)
-
-Vocabulary: door
-Detected: '' (score: 0.215)
-Reason: Empty label (length=0, area=0.02)
-
-Vocabulary: door
-Detected: 'a' (score: 0.270)
-Reason: Empty label (length=1, area=0.20)
-
-Vocabulary: door
-Detected: '' (score: 0.212)
-Reason: Empty label (length=0, area=1.00)
-
-Vocabulary: door
-Detected: '' (score: 0.244)
-Reason: Empty label (length=0, area=0.42)
-
-Vocabulary: door
-Detected: '' (score: 0.229)
-Reason: Empty label (length=0, area=0.04)
-
-Vocabulary: floor
-Detected: '' (score: 0.222)
-Reason: Empty label (length=0, area=0.13)
-
-Vocabulary: floor
-Detected: '' (score: 0.214)
-Reason: Empty label (length=0, area=0.16)
-
 Vocabulary: lamp
-Detected: '' (score: 0.208)
-Reason: Empty label (length=0, area=0.02)
+Detected: '' (score: 0.222)
+Reason: Empty label (length=0, area=0.03)
 
 Vocabulary: pillar
-Detected: '' (score: 0.236)
+Detected: '' (score: 0.238)
+Reason: Empty label (length=0, area=0.93)
+
+Vocabulary: pillar
+Detected: '' (score: 0.242)
+Reason: Empty label (length=0, area=1.00)
+
+Vocabulary: pillar
+Detected: '' (score: 0.205)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: pillar
+Detected: '' (score: 0.227)
 Reason: Empty label (length=0, area=0.01)
 
 Vocabulary: plant stand
-Detected: '' (score: 0.238)
+Detected: '' (score: 0.215)
 Reason: Empty label (length=0, area=0.01)
 
-Vocabulary: plate
-Detected: '' (score: 0.209)
-Reason: Empty label (length=0, area=0.25)
-
-Vocabulary: pot
-Detected: 'a' (score: 0.270)
-Reason: Empty label (length=1, area=0.20)
-
-Vocabulary: rug
-Detected: '' (score: 0.249)
-Reason: Empty label (length=0, area=0.14)
-
-Vocabulary: rug
-Detected: '' (score: 0.238)
-Reason: Empty label (length=0, area=0.19)
-
-Vocabulary: rug
-Detected: '' (score: 0.235)
-Reason: Empty label (length=0, area=0.20)
-
-Vocabulary: stool
-Detected: 'a' (score: 0.260)
-Reason: Empty label (length=1, area=0.02)
-
-Vocabulary: stool
-Detected: '' (score: 0.224)
-Reason: Empty label (length=0, area=0.07)
-
-Vocabulary: stool
-Detected: '' (score: 0.229)
-Reason: Empty label (length=0, area=0.03)
-
-Vocabulary: switch
-Detected: '' (score: 0.244)
-Reason: Empty label (length=0, area=0.00)
-
-Vocabulary: switch
-Detected: '' (score: 0.210)
-Reason: Empty label (length=0, area=0.20)
-
-Vocabulary: table
-Detected: '' (score: 0.205)
-Reason: Empty label (length=0, area=0.04)
-
-Vocabulary: table
-Detected: '' (score: 0.232)
+Vocabulary: plant stand
+Detected: '' (score: 0.221)
 Reason: Empty label (length=0, area=0.02)
 
-Vocabulary: vent
-Detected: '' (score: 0.220)
+Vocabulary: plant stand
+Detected: '' (score: 0.240)
+Reason: Empty label (length=0, area=0.21)
+
+Vocabulary: plate
+Detected: '' (score: 0.210)
+Reason: Empty label (length=0, area=0.26)
+
+Vocabulary: rug
+Detected: '' (score: 0.233)
+Reason: Empty label (length=0, area=0.09)
+
+Vocabulary: rug
+Detected: '' (score: 0.214)
+Reason: Empty label (length=0, area=0.10)
+
+Vocabulary: stool
+Detected: '' (score: 0.207)
+Reason: Empty label (length=0, area=0.06)
+
+Vocabulary: switch
+Detected: '' (score: 0.245)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: switch
+Detected: '' (score: 0.211)
 Reason: Empty label (length=0, area=0.01)
 
-Vocabulary: wall plug
-Detected: '' (score: 0.205)
-Reason: Empty label (length=0, area=0.01)
-
-Vocabulary: wall plug
+Vocabulary: vase
 Detected: '' (score: 0.209)
-Reason: Empty label (length=0, area=0.03)
+Reason: Empty label (length=0, area=0.21)
+
+Vocabulary: vent
+Detected: '' (score: 0.207)
+Reason: Empty label (length=0, area=0.21)
+
+Vocabulary: wall plug
+Detected: '' (score: 0.249)
+Reason: Empty label (length=0, area=0.02)
 

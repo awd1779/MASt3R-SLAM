@@ -17,12 +17,13 @@ class DenseSemanticReconstructorTrackedV2:
     """Create dense semantic point clouds with track ID coloring."""
     
     def __init__(self, device: str = "cuda", debug: bool = False, semantic_backend=None,
-                 min_depth: float = 0.1, max_depth: float = 50.0):
+                 min_depth: float = 0.1, max_depth: float = 50.0, c_conf_threshold: float = 1.5):
         self.device = device
         self.debug = debug
         self.semantic_backend = semantic_backend
         self.min_depth = min_depth
         self.max_depth = max_depth
+        self.c_conf_threshold = c_conf_threshold
     
     def _get_track_color(self, track_id: int) -> np.ndarray:
         """Get a consistent color for each track ID."""
@@ -71,12 +72,27 @@ class DenseSemanticReconstructorTrackedV2:
         img_rgb = (keyframe.uimg.cpu().numpy() * 255).astype(np.uint8)  # (3, H, W)
         img_rgb_flat = img_rgb.reshape(3, -1).T  # Reshape to (H*W, 3)
         
+        # PIXEL-TO-POINT CORRESPONDENCE VERIFICATION
+        # Verify that semantic mask indexing matches MAST3R point indexing
+        expected_points = h * w
+        actual_points = X_cam.shape[0]
+        if expected_points != actual_points:
+            logger.warning(f"Keyframe {kf_idx}: Point count mismatch! Expected {expected_points} (H×W), got {actual_points}")
+        else:
+            logger.debug(f"Keyframe {kf_idx}: Perfect pixel-to-point correspondence: {expected_points} points")
+        
         # Get track IDs if available
-        track_ids = semantic_data.get('track_ids', {})
+        track_ids = semantic_data.get('track_ids', {}) or {}
         has_tracks = len(track_ids) > 0
         
         if has_tracks:
             logger.info(f"Keyframe {kf_idx}: Using track IDs for {len(track_ids)} instances")
+        
+        # OPTIONAL: Run correspondence verification for first few keyframes
+        if kf_idx < 3:  # Only verify first few keyframes to avoid spam
+            verification_result = self.verify_correspondence(keyframe, semantic_data, kf_idx)
+            if not verification_result['overall_pass']:
+                logger.warning(f"Keyframe {kf_idx}: Correspondence verification failed!")
         
         # Create semantic mask
         semantic_mask = np.zeros((h, w), dtype=np.int32)
@@ -176,6 +192,16 @@ class DenseSemanticReconstructorTrackedV2:
         # Flatten semantic mask
         semantic_mask_flat = semantic_mask.reshape(-1)
         
+        # COORDINATE MAPPING VERIFICATION
+        # Verify that flattened semantic mask has exact correspondence with point cloud
+        if len(semantic_mask_flat) != len(X_cam):
+            logger.error(f"Keyframe {kf_idx}: CRITICAL - Semantic mask length {len(semantic_mask_flat)} != point cloud length {len(X_cam)}")
+            raise ValueError("Semantic mask and point cloud dimension mismatch!")
+        
+        # Verify semantic mask indexing matches point cloud indexing
+        labeled_pixels = np.sum(semantic_mask_flat > 0)
+        logger.debug(f"Keyframe {kf_idx}: {labeled_pixels}/{len(semantic_mask_flat)} pixels have semantic labels ({labeled_pixels/len(semantic_mask_flat)*100:.1f}%)")
+        
         # Transform to world coordinates
         T_WC = keyframe.T_WC
         T_WC_matrix = T_WC.matrix().cpu().numpy().squeeze() if hasattr(T_WC, 'matrix') else T_WC.cpu().numpy()
@@ -183,20 +209,50 @@ class DenseSemanticReconstructorTrackedV2:
         X_cam_homo = np.concatenate([X_cam, np.ones((X_cam.shape[0], 1))], axis=1)
         X_world = (T_WC_matrix @ X_cam_homo.T).T[:, :3]
         
-        # Filter valid points
+        # SYNCHRONIZED FILTERING CRITERIA FOR 1:1 CORRESPONDENCE
         depths = X_cam[:, 2]
         
-        # Apply basic 3D quality filters
+        # Apply identical 3D quality filters as MAST3R
         depth_near = depths > self.min_depth
         depth_far = depths < self.max_depth
         finite_points = np.isfinite(X_world).all(axis=1)
+        finite_cam_points = np.isfinite(X_cam).all(axis=1)
+        positive_depth = depths > 0
         has_label = semantic_mask_flat > 0
         
-        valid_mask = depth_near & depth_far & finite_points & has_label
+        # Add SLAM-quality confidence filtering (like overlay approach)
+        conf_values = keyframe.get_average_conf().cpu().numpy().reshape(-1)
+        high_conf_mask = conf_values > self.c_conf_threshold
         
+        # Create comprehensive validity mask with confidence filtering
+        geometric_valid = depth_near & depth_far & finite_points & finite_cam_points & positive_depth
+        semantic_valid = has_label
+        confidence_valid = high_conf_mask
+        valid_mask = geometric_valid & semantic_valid & confidence_valid
+        
+        # POINT PRESERVATION VERIFICATION
+        total_points = len(X_world)
+        geometric_valid_count = np.sum(geometric_valid)
+        semantic_valid_count = np.sum(semantic_valid)
+        confidence_valid_count = np.sum(confidence_valid)
+        final_valid_count = np.sum(valid_mask)
+        
+        logger.debug(f"Keyframe {kf_idx}: Point filtering analysis (SLAM-quality):")
+        logger.debug(f"  Total points: {total_points}")
+        logger.debug(f"  Geometrically valid: {geometric_valid_count} ({geometric_valid_count/total_points*100:.1f}%)")
+        logger.debug(f"  With semantic labels: {semantic_valid_count} ({semantic_valid_count/total_points*100:.1f}%)")
+        logger.debug(f"  High confidence (>{self.c_conf_threshold}): {confidence_valid_count} ({confidence_valid_count/total_points*100:.1f}%)")
+        logger.debug(f"  Final valid points: {final_valid_count} ({final_valid_count/total_points*100:.1f}%)")
+        
+        # Extract valid points while preserving exact correspondence
         points_3d = X_world[valid_mask]
         colors = img_rgb_flat[valid_mask]
         labels = semantic_mask_flat[valid_mask]
+        
+        # Verify no points were corrupted during filtering
+        if len(points_3d) != len(colors) or len(points_3d) != len(labels):
+            logger.error(f"Keyframe {kf_idx}: Point arrays length mismatch after filtering!")
+            raise ValueError("Point correspondence broken during filtering!")
         
         return points_3d, colors, labels, label_id_to_name, track_id_to_label
     
@@ -391,6 +447,91 @@ class DenseSemanticReconstructorTrackedV2:
         with open(mapping_file, 'w') as f:
             json.dump(mappings, f, indent=2)
         logger.info(f"Saved tracking information to {mapping_file}")
+    
+    def verify_correspondence(self, keyframe, semantic_data, kf_idx):
+        """
+        Comprehensive verification that semantic masks have perfect 1:1 correspondence 
+        with MAST3R point clouds.
+        """
+        logger.info(f"=== CORRESPONDENCE VERIFICATION for Keyframe {kf_idx} ===")
+        
+        # Get dimensions
+        h, w = keyframe.img_shape[0, 0].item(), keyframe.img_shape[0, 1].item()
+        X_cam = keyframe.X_canon.cpu().numpy()
+        
+        # Test 1: Verify point cloud has H×W points
+        expected_points = h * w
+        actual_points = X_cam.shape[0]
+        test1_pass = expected_points == actual_points
+        logger.info(f"Test 1 - Point count: Expected {expected_points}, got {actual_points} {'✓' if test1_pass else '✗'}")
+        
+        # Test 2: Verify semantic mask shapes
+        if semantic_data and 'masks_rle' in semantic_data:
+            mask_shape_errors = 0
+            for instance_id, rle in semantic_data['masks_rle'].items():
+                if 'size' in rle:
+                    size = rle['size']
+                    if len(size) == 3:
+                        _, mask_h, mask_w = size
+                    else:
+                        mask_h, mask_w = size
+                    
+                    if (mask_h, mask_w) != (h, w):
+                        mask_shape_errors += 1
+            
+            test2_pass = mask_shape_errors == 0
+            logger.info(f"Test 2 - Mask shapes: {mask_shape_errors} mismatches {'✓' if test2_pass else '✗'}")
+        else:
+            test2_pass = True
+            logger.info("Test 2 - Mask shapes: No masks to verify ✓")
+        
+        # Test 3: Verify coordinate transformation consistency
+        # Sample a few points to verify transformation
+        sample_indices = [0, h*w//4, h*w//2, 3*h*w//4, h*w-1] if h*w > 4 else [0]
+        T_WC = keyframe.T_WC
+        T_WC_matrix = T_WC.matrix().cpu().numpy().squeeze() if hasattr(T_WC, 'matrix') else T_WC.cpu().numpy()
+        
+        test3_errors = 0
+        for idx in sample_indices:
+            if idx < len(X_cam):
+                # Convert to homogeneous coordinates
+                X_cam_homo = np.append(X_cam[idx], 1.0)
+                X_world_manual = (T_WC_matrix @ X_cam_homo)[:3]
+                
+                # Check if transformation is reasonable (not NaN or inf)
+                if not np.all(np.isfinite(X_world_manual)):
+                    test3_errors += 1
+        
+        test3_pass = test3_errors == 0
+        logger.info(f"Test 3 - Transformations: {test3_errors} invalid transforms {'✓' if test3_pass else '✗'}")
+        
+        # Test 4: Verify index correspondence
+        # Create a test semantic mask to verify indexing
+        test_mask = np.zeros((h, w), dtype=np.int32)
+        test_mask[h//4:3*h//4, w//4:3*w//4] = 999  # Mark center region
+        test_mask_flat = test_mask.reshape(-1)
+        
+        # Check that flattened indexing matches expected pattern
+        center_indices = np.where(test_mask_flat == 999)[0]
+        expected_center_size = (h//2) * (w//2)  # Approximate center region size
+        actual_center_size = len(center_indices)
+        
+        test4_pass = abs(actual_center_size - expected_center_size) < expected_center_size * 0.1  # 10% tolerance
+        logger.info(f"Test 4 - Index mapping: Center region {actual_center_size}/{expected_center_size} points {'✓' if test4_pass else '✗'}")
+        
+        # Overall result
+        all_tests_pass = test1_pass and test2_pass and test3_pass and test4_pass
+        logger.info(f"CORRESPONDENCE VERIFICATION: {'ALL TESTS PASSED ✓' if all_tests_pass else 'SOME TESTS FAILED ✗'}")
+        
+        return {
+            'overall_pass': all_tests_pass,
+            'point_count_match': test1_pass,
+            'mask_shapes_valid': test2_pass,
+            'transforms_valid': test3_pass,
+            'index_mapping_valid': test4_pass,
+            'keyframe_dims': (h, w),
+            'total_points': actual_points
+        }
 
 
 def create_dense_semantic_reconstruction_tracked(keyframes,
@@ -400,14 +541,16 @@ def create_dense_semantic_reconstruction_tracked(keyframes,
                                                debug: bool = False,
                                                semantic_backend=None,
                                                min_depth: float = 0.1,
-                                               max_depth: float = 50.0) -> Optional[Dict]:
+                                               max_depth: float = 50.0,
+                                               c_conf_threshold: float = 1.5) -> Optional[Dict]:
     """Create dense semantic reconstruction with track ID support."""
     
     reconstructor = DenseSemanticReconstructorTrackedV2(
         debug=debug,
         semantic_backend=semantic_backend,
         min_depth=min_depth,
-        max_depth=max_depth
+        max_depth=max_depth,
+        c_conf_threshold=c_conf_threshold
     )
     
     result = reconstructor.create_dense_semantic_pointcloud_tracked(

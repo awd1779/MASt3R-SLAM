@@ -1,62 +1,70 @@
-Filtered 15 detections:
+Filtered 17 detections:
 
-Vocabulary: basket
-Detected: 'a' (score: 0.281)
-Reason: Empty label (length=1, area=0.13)
-
-Vocabulary: basket
+Vocabulary: blanket
 Detected: '' (score: 0.228)
-Reason: Empty label (length=0, area=0.00)
-
-Vocabulary: basket
-Detected: '' (score: 0.218)
-Reason: Empty label (length=0, area=0.01)
-
-Vocabulary: book
-Detected: '' (score: 0.234)
-Reason: Empty label (length=0, area=0.00)
-
-Vocabulary: book
-Detected: '' (score: 0.207)
-Reason: Empty label (length=0, area=0.01)
+Reason: Empty label (length=0, area=0.12)
 
 Vocabulary: candle
-Detected: '' (score: 0.248)
+Detected: '' (score: 0.219)
 Reason: Empty label (length=0, area=0.00)
 
 Vocabulary: candle
-Detected: '' (score: 0.243)
+Detected: '' (score: 0.200)
+Reason: Empty label (length=0, area=0.02)
+
+Vocabulary: cushion
+Detected: '' (score: 0.239)
+Reason: Empty label (length=0, area=0.01)
+
+Vocabulary: cushion
+Detected: '' (score: 0.205)
 Reason: Empty label (length=0, area=0.00)
 
 Vocabulary: indoor plant
-Detected: '' (score: 0.250)
-Reason: Empty label (length=0, area=0.13)
+Detected: '' (score: 0.236)
+Reason: Empty label (length=0, area=0.00)
 
-Vocabulary: pillar
-Detected: '' (score: 0.220)
+Vocabulary: indoor plant
+Detected: '' (score: 0.227)
 Reason: Empty label (length=0, area=0.12)
 
-Vocabulary: plant stand
-Detected: '' (score: 0.201)
-Reason: Empty label (length=0, area=0.01)
+Vocabulary: pillar
+Detected: '' (score: 0.219)
+Reason: Empty label (length=0, area=0.12)
 
-Vocabulary: plate
-Detected: '' (score: 0.249)
-Reason: Empty label (length=0, area=0.13)
-
-Vocabulary: switch
-Detected: '' (score: 0.225)
+Vocabulary: pot
+Detected: '' (score: 0.238)
 Reason: Empty label (length=0, area=0.00)
 
 Vocabulary: switch
-Detected: '' (score: 0.208)
+Detected: '' (score: 0.221)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: switch
+Detected: '' (score: 0.207)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: switch
+Detected: '' (score: 0.235)
+Reason: Empty label (length=0, area=0.00)
+
+Vocabulary: switch
+Detected: '' (score: 0.207)
 Reason: Empty label (length=0, area=0.00)
 
 Vocabulary: vent
-Detected: '' (score: 0.208)
+Detected: '' (score: 0.229)
 Reason: Empty label (length=0, area=0.28)
 
+Vocabulary: wall
+Detected: '' (score: 0.230)
+Reason: Empty label (length=0, area=0.87)
+
 Vocabulary: wall plug
-Detected: '' (score: 0.239)
+Detected: '' (score: 0.212)
+Reason: Empty label (length=0, area=0.12)
+
+Vocabulary: wall plug
+Detected: '' (score: 0.232)
 Reason: Empty label (length=0, area=0.00)
 
