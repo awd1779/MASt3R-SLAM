@@ -7,6 +7,8 @@ from pathlib import Path
 import cv2
 from plyfile import PlyData, PlyElement
 from mast3r_slam.semantic_frame import decode_rle
+from mast3r_slam.object_clustering import ObjectInstance, hybrid_cluster_objects, compute_object_centroid
+from mast3r_slam.enhanced_object_clustering import enhanced_hybrid_cluster_objects
 import logging
 import json
 
@@ -17,13 +19,23 @@ class DenseSemanticReconstructorTrackedV2:
     """Create dense semantic point clouds with track ID coloring."""
     
     def __init__(self, device: str = "cuda", debug: bool = False, semantic_backend=None,
-                 min_depth: float = 0.1, max_depth: float = 50.0, c_conf_threshold: float = 1.5):
+                 min_depth: float = 0.1, max_depth: float = 50.0, c_conf_threshold: float = 1.5,
+                 use_object_clustering: bool = True, clustering_config: Optional[Dict] = None):
         self.device = device
         self.debug = debug
         self.semantic_backend = semantic_backend
         self.min_depth = min_depth
         self.max_depth = max_depth
         self.c_conf_threshold = c_conf_threshold
+        self.use_object_clustering = use_object_clustering
+        
+        # Object clustering configuration
+        self.clustering_config = clustering_config or {
+            "spatial_threshold": 0.6,    # 60cm spatial clustering
+            "temporal_threshold": 15,    # Max 15 keyframes gap
+            "movement_threshold": 0.5,   # Max 50cm movement
+            "min_samples": 1            # Allow single detections
+        }
     
     def _get_track_color(self, track_id: int) -> np.ndarray:
         """Get a consistent color for each track ID."""
@@ -244,17 +256,91 @@ class DenseSemanticReconstructorTrackedV2:
         
         return points_3d, colors, labels, label_id_to_name
     
+    def _extract_object_instances(self, points: np.ndarray, colors: np.ndarray, 
+                                 labels: np.ndarray, label_names: Dict[int, str], 
+                                 kf_idx: int) -> List[ObjectInstance]:
+        """Extract ObjectInstance objects from keyframe data for clustering."""
+        instances = []
+        
+        for global_id, label_name in label_names.items():
+            if global_id == 0:  # Skip background
+                continue
+                
+            # Get points belonging to this object instance
+            object_mask = labels == global_id
+            if np.sum(object_mask) == 0:
+                continue
+                
+            object_points = points[object_mask]
+            
+            # Compute centroid
+            centroid = np.mean(object_points, axis=0)
+            
+            # Extract clean label (remove keyframe info)
+            clean_label = label_name.split('_kf')[0] if '_kf' in label_name else label_name
+            
+            # Create ObjectInstance
+            instance = ObjectInstance(
+                global_id=global_id,
+                local_id=global_id % 10000,  # Extract local ID
+                keyframe_idx=kf_idx,
+                label=clean_label,
+                confidence=1.0,  # Default confidence
+                centroid_3d=centroid,
+                num_points=len(object_points),
+                point_indices=np.where(object_mask)[0]
+            )
+            instances.append(instance)
+        
+        logger.debug(f"Extracted {len(instances)} object instances from keyframe {kf_idx}")
+        return instances
+    
+    def _apply_clustering_to_points(self, keyframe_points_data: List[Dict], 
+                                   all_instances: List[ObjectInstance], 
+                                   clusters: List) -> Tuple[List[Dict], Dict[int, str]]:
+        """Apply clustering results to update point labels and mappings."""
+        
+        # Create mapping from old global IDs to cluster IDs
+        old_to_cluster_id = {}
+        cluster_label_mapping = {0: 'background'}
+        
+        for cluster in clusters:
+            cluster_label_mapping[cluster.cluster_id] = cluster.label
+            for instance in cluster.instances:
+                old_to_cluster_id[instance.global_id] = cluster.cluster_id
+        
+        logger.info(f"Created clustering mapping: {len(old_to_cluster_id)} instances → "
+                   f"{len(clusters)} clusters")
+        
+        # Update labels in keyframe data
+        for kf_data in keyframe_points_data:
+            labels = kf_data['labels']
+            
+            # Remap labels to cluster IDs
+            new_labels = np.copy(labels)
+            for old_id, cluster_id in old_to_cluster_id.items():
+                mask = labels == old_id
+                new_labels[mask] = cluster_id
+                
+            kf_data['labels'] = new_labels
+        
+        return keyframe_points_data, cluster_label_mapping
+    
     def create_dense_semantic_pointcloud_tracked(self,
                                                 keyframes, 
                                                 semantic_keyframes,
                                                 use_semantic_colors=True):
-        """Create dense point cloud with track ID support."""
+        """Create dense point cloud with track ID support and object clustering."""
         
         all_points = []
         all_colors = []
         all_labels = []
         global_label_mapping = {0: 'background'}
         processed_keyframes = 0
+        
+        # NEW: Collect object instances for clustering
+        all_instances = []
+        keyframe_points_data = []  # Store per-keyframe data for clustering
         
         logger.info("Creating dense semantic reconstruction...")
         
@@ -276,20 +362,75 @@ class DenseSemanticReconstructorTrackedV2:
             )
             
             if len(points) > 0:
+                # Store keyframe data for later clustering
+                keyframe_data = {
+                    'points': points,
+                    'colors': colors, 
+                    'labels': labels,
+                    'label_names': label_names,
+                    'kf_idx': kf_idx
+                }
+                keyframe_points_data.append(keyframe_data)
+                
+                # NEW: Extract object instances for clustering
+                if self.use_object_clustering:
+                    instances = self._extract_object_instances(
+                        points, colors, labels, label_names, kf_idx
+                    )
+                    all_instances.extend(instances)
+                
                 # Update global mappings with the new global instance IDs
                 for global_id, name in label_names.items():
                     if global_id not in global_label_mapping:
                         global_label_mapping[global_id] = name
                 
-                
-                all_points.append(points)
-                all_colors.append(colors)
-                all_labels.append(labels)
                 processed_keyframes += 1
         
-        if len(all_points) == 0:
+        if len(keyframe_points_data) == 0:
             logger.warning("No valid points found in any keyframe!")
             return None
+            
+        # NEW: Apply enhanced object clustering if enabled
+        if self.use_object_clustering and len(all_instances) > 0:
+            logger.info(f"Applying enhanced object clustering to {len(all_instances)} instances...")
+            
+            # Prepare point data for enhanced clustering
+            all_points_data = {}
+            for kf_data in keyframe_points_data:
+                points = kf_data['points']
+                labels = kf_data['labels']
+                label_names = kf_data['label_names']
+                
+                for global_id, _ in label_names.items():
+                    if global_id == 0:  # Skip background
+                        continue
+                    object_mask = labels == global_id
+                    if np.sum(object_mask) > 0:
+                        all_points_data[global_id] = points[object_mask]
+            
+            logger.info(f"Prepared point cloud data for {len(all_points_data)} instances")
+            
+            # Use enhanced clustering with all advanced features
+            clusters = enhanced_hybrid_cluster_objects(
+                instances=all_instances,
+                all_points_data=all_points_data,
+                global_config=self.clustering_config,
+                use_adaptive_params=True,
+                use_stacking_detection=True,
+                use_post_merge=True,
+                debug=self.debug
+            )
+            
+            # Update labels and mappings based on clustering
+            keyframe_points_data, global_label_mapping = self._apply_clustering_to_points(
+                keyframe_points_data, all_instances, clusters
+            )
+        
+        # Concatenate all processed data
+        for kf_data in keyframe_points_data:
+            all_points.append(kf_data['points'])
+            all_colors.append(kf_data['colors'])
+            all_labels.append(kf_data['labels'])
         
         # Concatenate all data
         all_points = np.concatenate(all_points, axis=0)
@@ -486,7 +627,9 @@ def create_dense_semantic_reconstruction_tracked(keyframes,
                                                semantic_backend=None,
                                                min_depth: float = 0.1,
                                                max_depth: float = 50.0,
-                                               c_conf_threshold: float = 1.5) -> Optional[Dict]:
+                                               c_conf_threshold: float = 1.5,
+                                               use_object_clustering: bool = True,
+                                               clustering_config: Optional[Dict] = None) -> Optional[Dict]:
     """Create dense semantic reconstruction with track ID support."""
     
     reconstructor = DenseSemanticReconstructorTrackedV2(
@@ -494,7 +637,9 @@ def create_dense_semantic_reconstruction_tracked(keyframes,
         semantic_backend=semantic_backend,
         min_depth=min_depth,
         max_depth=max_depth,
-        c_conf_threshold=c_conf_threshold
+        c_conf_threshold=c_conf_threshold,
+        use_object_clustering=use_object_clustering,
+        clustering_config=clustering_config
     )
     
     result = reconstructor.create_dense_semantic_pointcloud_tracked(

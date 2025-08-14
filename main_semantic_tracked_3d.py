@@ -678,6 +678,14 @@ if __name__ == "__main__":
             min_depth = 0.1
             max_depth = 50.0
             
+            # Object clustering configuration - Updated based on validation analysis
+            clustering_config = {
+                "spatial_threshold": 1.0,    # 100cm spatial clustering (increased from 0.6m)
+                "temporal_threshold": 25,    # Max 25 keyframes gap (increased from 15)
+                "movement_threshold": 0.8,   # Max 80cm movement (increased from 0.5m)
+                "min_samples": 1            # Allow single detections
+            }
+            
             dense_result = create_dense_semantic_reconstruction_tracked(
                 keyframes,
                 semantic_keyframes,
@@ -687,7 +695,9 @@ if __name__ == "__main__":
                 semantic_backend=semantic_backend,
                 min_depth=min_depth,
                 max_depth=max_depth,
-                c_conf_threshold=last_msg.C_conf_threshold  # Use SLAM confidence threshold
+                c_conf_threshold=last_msg.C_conf_threshold,  # Use SLAM confidence threshold
+                use_object_clustering=True,  # Enable object clustering
+                clustering_config=clustering_config
             )
             
             if dense_result:

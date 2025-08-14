@@ -1,0 +1,13 @@
+{
+  "scene_type": "indoor",
+  "timestamp": "2025-08-14 21:14:44",
+  "best_params": {
+    "spatial_threshold": 1.0,
+    "temporal_threshold": 10,
+    "movement_threshold": 0.1,
+    "min_samples": 1
+  },
+  "best_score": 0.8242220281149578,
+  "optimization_time": 3.046053409576416,
+  "num_instances": 53
+}
