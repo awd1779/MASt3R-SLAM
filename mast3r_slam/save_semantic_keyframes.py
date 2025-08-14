@@ -5,7 +5,6 @@ import numpy as np
 import torch
 from pathlib import Path
 from typing import Dict, Optional
-import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 from mast3r_slam.semantic_frame import decode_rle
 
@@ -65,9 +64,8 @@ def save_semantic_keyframes(savedir: Path,
         # Create semantic mask
         h, w = img.shape[:2]
         semantic_mask = np.zeros((h, w), dtype=np.int32)
-        instance_masks = {}
         
-        # Decode all masks
+        # Process masks one at a time to save memory
         for instance_id, rle in semantic_data['masks_rle'].items():
             if 'size' in rle:
                 size = rle['size']
@@ -88,23 +86,12 @@ def save_semantic_keyframes(savedir: Path,
                     ).astype(bool)
                     mask = mask_resized
                 
-                instance_masks[instance_id] = mask
-                
-                # Use instance ID directly (no tracking)
+                # Use instance ID directly (no tracking) and don't store the mask
                 semantic_mask[mask] = instance_id
         
         # Create side-by-side visualization only
         # Create overlay with semi-transparent segmentation
-        overlay = img_bgr.copy()
-        
-        # Apply colors for each semantic label
-        for instance_id in np.unique(semantic_mask):
-            if instance_id == 0:
-                continue
-            mask = semantic_mask == instance_id
-            color = label_colors.get(instance_id, (255, 255, 255))
-            # Semi-transparent overlay
-            overlay[mask] = (0.6 * np.array(color[::-1]) + 0.4 * overlay[mask]).astype(np.uint8)
+        overlay = create_semantic_overlay(img_bgr, semantic_mask, label_colors, alpha=0.6)
         
         # Combine images side by side
         combined = np.hstack([img_bgr, overlay])

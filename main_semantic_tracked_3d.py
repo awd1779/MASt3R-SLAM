@@ -114,8 +114,11 @@ def relocalization(frame, keyframes, factor_graph, retrieval_database):
 def run_backend(cfg, model, states, keyframes, semantic_keyframes, semantic_result_queue, K):
     # Use semantic backend if semantic segmentation is enabled
     if config.get("semantic_segmentation", {}).get("enabled", False):
-        from mast3r_slam.semantic_integration import run_semantic_backend
-        return run_semantic_backend(cfg, model, states, keyframes, semantic_keyframes, semantic_result_queue, K)
+        try:
+            from mast3r_slam.semantic_integration import run_semantic_backend
+            return run_semantic_backend(cfg, model, states, keyframes, semantic_keyframes, semantic_result_queue, K)
+        except ImportError:
+            logger.warning("Semantic integration not available, using standard backend")
     
     # Otherwise use standard backend
     set_global_config(cfg)
@@ -284,6 +287,9 @@ if __name__ == "__main__":
             vocabulary = [obj for obj in vocabulary if obj not in excluded_objects]
             logger.info(f"Filtered out {original_len - len(vocabulary)} objects: {excluded_objects}")
             logger.info(f"Final vocabulary: {vocabulary}")
+        
+        # Enable debug mode and visualization saving for inspection
+        logger.info("Debug mode enabled - images will be saved to debug_semantic_pipeline/")
         
         # Get device and model settings
         semantic_device = config["semantic_segmentation"]["grounded_sam2"].get("device", "cuda:1")
@@ -489,6 +495,13 @@ if __name__ == "__main__":
                 img_numpy = img_resized["unnormalized_img"].astype('uint8')
                 logger.info(f"Sending to semantic: frame shape {img_numpy.shape} (H×W×C), 3D points shape {frame.X_canon.shape if frame.X_canon is not None else 'None'}")
                 
+                # Save keyframe image for debugging
+                import cv2
+                debug_dir = Path("debug_keyframes")
+                debug_dir.mkdir(exist_ok=True)
+                cv2.imwrite(str(debug_dir / f"keyframe_{kf_idx:03d}_frame_{i:06d}.jpg"), img_numpy)
+                logger.info(f"Saved keyframe image to debug_keyframes/keyframe_{kf_idx:03d}_frame_{i:06d}.jpg")
+                
                 # Clone keyframe data to avoid CUDA serialization issues
                 keyframe_data = {
                     'img_shape': frame.img_shape.cpu().clone(),
@@ -546,6 +559,13 @@ if __name__ == "__main__":
                 img_numpy = img_resized["unnormalized_img"].astype('uint8')
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(f"Keyframe {kf_idx}: frame shape {img_numpy.shape}, 3D points {frame.X_canon.shape if frame.X_canon is not None else 'None'}")
+                
+                # Save keyframe image for debugging
+                import cv2
+                debug_dir = Path("debug_keyframes")
+                debug_dir.mkdir(exist_ok=True)
+                cv2.imwrite(str(debug_dir / f"keyframe_{kf_idx:03d}_frame_{i:06d}.jpg"), img_numpy)
+                logger.info(f"Saved keyframe image to debug_keyframes/keyframe_{kf_idx:03d}_frame_{i:06d}.jpg")
                 
                 # Clone keyframe data to avoid CUDA serialization issues
                 keyframe_data = {
@@ -611,12 +631,15 @@ if __name__ == "__main__":
         
         # Save semantic reconstruction if enabled
         if semantic_keyframes is not None:
-            from mast3r_slam.semantic_integration import SemanticSLAMBackend
-            
-            # Create semantic backend for export
-            semantic_backend = SemanticSLAMBackend(
-                keyframes, semantic_keyframes, K, device
-            )
+            try:
+                from mast3r_slam.semantic_integration import SemanticSLAMBackend
+                # Create semantic backend for export
+                semantic_backend = SemanticSLAMBackend(
+                    keyframes, semantic_keyframes, K, device
+                )
+            except ImportError:
+                logger.warning("Semantic integration not available, using simplified reconstruction")
+                semantic_backend = None
             
             # Wait for any remaining semantic results to be processed
             # Give the thread some time to finish processing
@@ -625,17 +648,24 @@ if __name__ == "__main__":
                 logger.info(f"Waiting for {semantic_result_queue.qsize()} remaining semantic results...")
                 time.sleep(0.5)
             
-            # Process semantic keyframes with backend
+            # Process semantic keyframes with backend (if available)
             n_keyframes = len(keyframes)
             logger.info(f"Total keyframes: {n_keyframes}")
             semantic_count = 0
-            for kf_idx in range(n_keyframes):
-                if semantic_keyframes.has_semantic_data(kf_idx):
-                    semantic_backend.process_semantic_keyframe(kf_idx)
-                    semantic_count += 1
-                    logger.info(f"Processed semantic data for keyframe {kf_idx}")
             
-            logger.info(f"Processed {semantic_count}/{n_keyframes} keyframes with semantic data")
+            if semantic_backend is not None:
+                for kf_idx in range(n_keyframes):
+                    if semantic_keyframes.has_semantic_data(kf_idx):
+                        semantic_backend.process_semantic_keyframe(kf_idx)
+                        semantic_count += 1
+                        logger.info(f"Processed semantic data for keyframe {kf_idx}")
+                logger.info(f"Processed {semantic_count}/{n_keyframes} keyframes with semantic data")
+            else:
+                # Count semantic keyframes without backend processing
+                for kf_idx in range(n_keyframes):
+                    if semantic_keyframes.has_semantic_data(kf_idx):
+                        semantic_count += 1
+                logger.info(f"Found {semantic_count}/{n_keyframes} keyframes with semantic data (no backend processing)")
             
             # Export dense semantic point cloud with tracking
             from mast3r_slam.dense_semantic_reconstruction_tracked_v2 import create_dense_semantic_reconstruction_tracked

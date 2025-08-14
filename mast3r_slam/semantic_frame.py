@@ -3,7 +3,7 @@ from typing import Optional, Dict, List
 import torch
 import numpy as np
 from mast3r_slam.frame import Frame
-import torch.multiprocessing as mp
+import pycocotools.mask as mask_utils
 
 
 @dataclasses.dataclass
@@ -109,47 +109,27 @@ class SharedSemanticKeyframes:
             return bool(self.has_semantics[kf_idx].item())
 
 
-# RLE encoding/decoding utilities
+# RLE encoding/decoding utilities using pycocotools
 def encode_rle(mask: torch.Tensor) -> dict:
-    """Encode binary mask to RLE format."""
-    original_shape = mask.shape
-    mask = mask.cpu().numpy().astype(np.uint8).flatten()
-    
-    # Find run starts and lengths
-    runs = []
-    current_val = 0
-    start_pos = 0
-    
-    for i in range(len(mask)):
-        if mask[i] != current_val:
-            runs.append(i - start_pos)
-            current_val = mask[i]
-            start_pos = i
-    
-    # Don't forget the last run
-    runs.append(len(mask) - start_pos)
-    
-    # If the mask starts with 1, prepend a 0-length background run
-    if len(mask) > 0 and mask[0] == 1:
-        runs = [0] + runs
-    
-    return {'size': list(original_shape), 'counts': runs}
+    """Encode binary mask to RLE format using pycocotools."""
+    mask_np = mask.cpu().numpy().astype(np.uint8, order='F')  # Fortran order for pycocotools
+    rle = mask_utils.encode(mask_np)
+    # Convert bytes to list for JSON serialization
+    if isinstance(rle['counts'], bytes):
+        rle['counts'] = rle['counts'].decode('utf-8')
+    return rle
 
 
 def decode_rle(rle: dict, h: int, w: int) -> torch.Tensor:
-    """Decode RLE format to binary mask."""
-    counts = rle['counts']
-    mask = np.zeros(h * w, dtype=np.uint8)
+    """Decode RLE format to binary mask using pycocotools."""
+    # Handle both string and list formats
+    if isinstance(rle['counts'], str):
+        rle_copy = {'size': rle['size'], 'counts': rle['counts'].encode('utf-8')}
+    else:
+        rle_copy = rle
     
-    pos = 0
-    val = 0  # Start with background
-    for count in counts:
-        if count > 0:
-            mask[pos:pos+count] = val
-        pos += count
-        val = 1 - val  # Alternate between 0 and 1
-    
-    return torch.from_numpy(mask.reshape(h, w)).to(torch.bool)
+    mask = mask_utils.decode(rle_copy)
+    return torch.from_numpy(mask).to(torch.bool)
 
 
 def create_semantic_frame(frame: Frame) -> SemanticFrame:

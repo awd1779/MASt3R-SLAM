@@ -27,8 +27,6 @@ class DenseSemanticReconstructorTrackedV2:
     
     def _get_track_color(self, track_id: int) -> np.ndarray:
         """Get a consistent color for each track ID."""
-        import hashlib
-        
         # Use golden ratio for better color distribution
         golden_ratio = 0.618033988749895
         hue = (track_id * golden_ratio) % 1.0
@@ -81,15 +79,9 @@ class DenseSemanticReconstructorTrackedV2:
         else:
             logger.debug(f"Keyframe {kf_idx}: Perfect pixel-to-point correspondence: {expected_points} points")
         
-        # Get track IDs if available
-        track_ids = semantic_data.get('track_ids', {}) or {}
-        has_tracks = len(track_ids) > 0
         
-        if has_tracks:
-            logger.info(f"Keyframe {kf_idx}: Using track IDs for {len(track_ids)} instances")
-        
-        # OPTIONAL: Run correspondence verification for first few keyframes
-        if kf_idx < 3:  # Only verify first few keyframes to avoid spam
+        # OPTIONAL: Run correspondence verification in debug mode only
+        if self.debug and kf_idx < 3:  # Only verify first few keyframes to avoid spam
             verification_result = self.verify_correspondence(keyframe, semantic_data, kf_idx)
             if not verification_result['overall_pass']:
                 logger.warning(f"Keyframe {kf_idx}: Correspondence verification failed!")
@@ -98,7 +90,6 @@ class DenseSemanticReconstructorTrackedV2:
         semantic_mask = np.zeros((h, w), dtype=np.int32)
         priority_mask = np.zeros((h, w), dtype=np.float32)  # Track pixel priorities
         label_id_to_name = {0: 'background'}
-        track_id_to_label = {}  # Map track IDs to labels
         
         # Process masks with priority system
         if semantic_data and 'masks_rle' in semantic_data:
@@ -251,7 +242,7 @@ class DenseSemanticReconstructorTrackedV2:
             logger.error(f"Keyframe {kf_idx}: Point arrays length mismatch after filtering!")
             raise ValueError("Point correspondence broken during filtering!")
         
-        return points_3d, colors, labels, label_id_to_name, {}
+        return points_3d, colors, labels, label_id_to_name
     
     def create_dense_semantic_pointcloud_tracked(self,
                                                 keyframes, 
@@ -263,10 +254,9 @@ class DenseSemanticReconstructorTrackedV2:
         all_colors = []
         all_labels = []
         global_label_mapping = {0: 'background'}
-        global_track_mapping = {}  # Track which track IDs we've seen
         processed_keyframes = 0
         
-        logger.info("Creating dense semantic reconstruction with track IDs...")
+        logger.info("Creating dense semantic reconstruction...")
         
         for kf_idx in range(len(keyframes)):
             keyframe = keyframes[kf_idx]
@@ -280,8 +270,8 @@ class DenseSemanticReconstructorTrackedV2:
             if semantic_data is None:
                 continue
             
-            # Project keyframe with track support
-            points, colors, labels, label_names, track_to_label = self.project_semantic_keyframe_tracked(
+            # Project keyframe to 3D
+            points, colors, labels, label_names = self.project_semantic_keyframe_tracked(
                 keyframe, semantic_data, kf_idx
             )
             
@@ -291,7 +281,6 @@ class DenseSemanticReconstructorTrackedV2:
                     if global_id not in global_label_mapping:
                         global_label_mapping[global_id] = name
                 
-                # No track mapping needed since we're not using tracking
                 
                 all_points.append(points)
                 all_colors.append(colors)
@@ -312,8 +301,8 @@ class DenseSemanticReconstructorTrackedV2:
             logger.info(f"Applying semantic colors to {len(all_points)} points...")
             semantic_colors = np.copy(all_colors)
             
-            # Color by track ID if available
-            unique_tracks = set()
+            # Color by semantic labels
+            unique_instances = set()
             for label_id in np.unique(all_labels):
                 mask = all_labels == label_id
                 if label_id > 0:
@@ -322,15 +311,14 @@ class DenseSemanticReconstructorTrackedV2:
                     # Use the global instance ID directly for consistent coloring
                     color = self._get_track_color(label_id)
                     semantic_colors[mask] = color
-                    unique_tracks.add(label_id)
+                    unique_instances.add(label_id)
             
-            logger.info(f"Colored {len(unique_tracks)} unique tracks")
+            logger.info(f"Colored {len(unique_instances)} unique instances")
             all_colors = semantic_colors
         
         # Compute statistics
         unique_labels, counts = np.unique(all_labels, return_counts=True)
         label_stats = {}
-        track_stats = {}
         combined_stats = {}  # Combined statistics for summary
         
         for label_id, count in zip(unique_labels, counts):
@@ -353,26 +341,6 @@ class DenseSemanticReconstructorTrackedV2:
         for label in combined_stats:
             combined_stats[label]['percentage'] = (combined_stats[label]['count'] / len(all_labels)) * 100
         
-        # Summarize track statistics
-        logger.info("\nTrack Statistics:")
-        for label, stats in track_stats.items():
-            logger.info(f"  {label}: {len(stats['tracks'])} tracks, {stats['count']} total points")
-        
-        # Special logging for debugging chair/sofa
-        chair_found = False
-        sofa_found = False
-        for label, stats in track_stats.items():
-            if 'chair' in label.lower():
-                chair_found = True
-                logger.info(f"\n✓ CHAIR FOUND: {stats['count']:,} points across {len(stats['tracks'])} tracks")
-            elif 'sofa' in label.lower():
-                sofa_found = True
-                logger.info(f"✓ SOFA FOUND: {stats['count']:,} points across {len(stats['tracks'])} tracks")
-        
-        if not chair_found:
-            logger.warning("\n✗ CHAIR NOT FOUND in track statistics!")
-        if not sofa_found:
-            logger.warning("✗ SOFA NOT FOUND in track statistics!")
         
         return {
             'points': all_points,
@@ -381,9 +349,7 @@ class DenseSemanticReconstructorTrackedV2:
             'num_points': len(all_points),
             'num_keyframes': processed_keyframes,
             'label_mapping': global_label_mapping,
-            'track_mapping': global_track_mapping,
             'label_stats': combined_stats,  # Use combined stats for summary
-            'track_stats': track_stats,
             'detailed_label_stats': label_stats  # Keep original for detailed analysis
         }
     
@@ -391,9 +357,8 @@ class DenseSemanticReconstructorTrackedV2:
                         points: np.ndarray,
                         colors: np.ndarray,
                         labels: np.ndarray,
-                        label_mapping: Dict[int, str] = None,
-                        track_mapping: Dict[int, str] = None):
-        """Save dense semantic point cloud with track information."""
+                        label_mapping: Dict[int, str] = None):
+        """Save dense semantic point cloud with label information."""
         
         n_points = len(points)
         
@@ -419,14 +384,13 @@ class DenseSemanticReconstructorTrackedV2:
         logger.info(f"Saved {n_points} points to {filename}")
         
         # Save mappings
-        mapping_file = Path(filename).with_suffix('.tracking.json')
+        mapping_file = Path(filename).with_suffix('.labels.json')
         mappings = {
-            'label_to_name': label_mapping or {},
-            'track_to_label': track_mapping or {}
+            'label_to_name': label_mapping or {}
         }
         with open(mapping_file, 'w') as f:
             json.dump(mappings, f, indent=2)
-        logger.info(f"Saved tracking information to {mapping_file}")
+        logger.info(f"Saved label information to {mapping_file}")
     
     def verify_correspondence(self, keyframe, semantic_data, kf_idx):
         """
@@ -548,8 +512,7 @@ def create_dense_semantic_reconstruction_tracked(keyframes,
         result['points'],
         result['colors'],
         result['labels'],
-        result.get('label_mapping', {}),
-        result.get('track_mapping', {})
+        result.get('label_mapping', {})
     )
     
     return result

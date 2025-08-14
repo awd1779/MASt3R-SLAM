@@ -178,74 +178,37 @@ class RealGroundedSAM2Processor:
                     f.write(f"Reason: {det['reason']}\n\n")
     
     def find_model_paths(self) -> Tuple[str, str, str, str]:
-        """Automatically find model paths - simplified version."""
-        search_paths = [
-            Path(self.sam2_checkpoint_dir) if self.sam2_checkpoint_dir else None,
-            Path(self.grounding_dino_checkpoint_dir) if self.grounding_dino_checkpoint_dir else None,
-            Path.cwd() / "models",  # Local repo models first
-            Path.home() / "models",
-            Path.home() / "libs",
-            Path("/workspace"),
-        ]
-        search_paths = [p for p in search_paths if p]
-        
-        sam2_checkpoint = sam2_config = grounding_checkpoint = grounding_config = None
-        
-        # Use model configs if provided, otherwise use fallback
+        """Find model paths using config or defaults."""
+        # Get checkpoint filenames from config
         if self.model_configs and 'sam2_models' in self.model_configs:
-            sam2_models = self.model_configs['sam2_models']
-            grounding_models = self.model_configs['grounding_models']
-            
-            # Get files from config
-            primary_sam2_file = sam2_models[self.sam2_model_name]["checkpoint"]
-            sam2_files = [primary_sam2_file]
-            if "sam2_" in primary_sam2_file:
-                # Add fallback for sam2.1 versions
-                fallback_file = primary_sam2_file.replace("sam2_", "sam2.1_")
-                sam2_files.append(fallback_file)
-            
-            grounding_files = grounding_models[self.grounding_model_name]["checkpoint"]
+            sam2_file = self.model_configs['sam2_models'][self.sam2_model_name]["checkpoint"]
+            grounding_file = self.model_configs['grounding_models'][self.grounding_model_name]["checkpoint"]
         else:
-            # Fallback to hardcoded mapping
-            sam2_model_files = {
-                "hiera_tiny": ["sam2_hiera_tiny.pt", "sam2.1_hiera_tiny.pt"],
-                "hiera_small": ["sam2_hiera_small.pt", "sam2.1_hiera_small.pt"],
-                "hiera_b+": ["sam2_hiera_base_plus.pt", "sam2.1_hiera_base_plus.pt"],
-                "hiera_large": ["sam2_hiera_large.pt", "sam2.1_hiera_large.pt"]
-            }
-            
-            grounding_model_files = {
-                "grounding_dino_swin-t": "groundingdino_swint_ogc.pth",
-                "grounding_dino_swin-b": "groundingdino_swinb_cogcoor.pth",
-                "grounding_dino_swin-l": "groundingdino_swinl_cogcoor.pth"
-            }
-            
-            sam2_files = sam2_model_files.get(self.sam2_model_name, ["sam2_hiera_large.pt"])
-            grounding_files = grounding_model_files.get(self.grounding_model_name, "groundingdino_swinb_cogcoor.pth")
+            # Fallback defaults
+            sam2_file = "sam2_hiera_large.pt"
+            grounding_file = "groundingdino_swinb_cogcoor.pth"
         
-        for path in search_paths:
-            # Check SAM2
-            for sam2_dir in [path / "segment-anything-2", path / "sam2", path / "SAM2"]:
-                if sam2_dir.exists() and not sam2_checkpoint:
-                    for ckpt_file in sam2_files:
-                        for ckpt_path in [sam2_dir / "checkpoints" / ckpt_file, sam2_dir / ckpt_file]:
-                            if ckpt_path.exists():
-                                sam2_checkpoint = str(ckpt_path)
-                                logger.info(f"Found SAM2 checkpoint: {sam2_checkpoint}")
-                                break
-                        if sam2_checkpoint:
-                            break
-                            
-            # Check Grounding DINO
-            for grounding_dir in [path / "GroundingDINO", path / "groundingdino", path]:
-                if grounding_dir.exists() and not grounding_checkpoint and grounding_files:
-                    for ckpt_path in [grounding_dir / "weights" / grounding_files, grounding_dir / grounding_files]:
-                        if ckpt_path.exists():
-                            grounding_checkpoint = str(ckpt_path)
-                            logger.info(f"Found Grounding DINO checkpoint: {grounding_checkpoint}")
-                            break
-                            
-        return sam2_checkpoint, sam2_config, grounding_checkpoint, grounding_config
+        # Search in provided directories first, then common locations
+        search_paths = [
+            Path(self.sam2_checkpoint_dir) if self.sam2_checkpoint_dir else Path.cwd() / "models" / "segment-anything-2",
+            Path(self.grounding_dino_checkpoint_dir) if self.grounding_dino_checkpoint_dir else Path.cwd() / "models" / "GroundingDINO"
+        ]
+        
+        # Find SAM2 checkpoint
+        sam2_checkpoint = None
+        for search_path in [search_paths[0], search_paths[0] / "checkpoints"]:
+            if (search_path / sam2_file).exists():
+                sam2_checkpoint = str(search_path / sam2_file)
+                break
+                
+        # Find Grounding DINO checkpoint  
+        grounding_checkpoint = None
+        for search_path in [search_paths[1], search_paths[1] / "weights"]:
+            if (search_path / grounding_file).exists():
+                grounding_checkpoint = str(search_path / grounding_file)
+                break
+                
+        return sam2_checkpoint, None, grounding_checkpoint, None
         
     def initialize_models(self):
         """Initialize Grounded-SAM2 models with automatic path finding."""
@@ -507,110 +470,6 @@ class RealGroundedSAM2Processor:
         
         keep = torch.tensor(keep, dtype=torch.long)
         return boxes[keep], scores[keep], [labels[i] for i in keep]
-    
-    def _deduplicate_masks(self, masks: List[np.ndarray], labels: List[str], frame_idx: int) -> Tuple[List[np.ndarray], List[str]]:
-        """Deduplicate overlapping segmentation masks using simple size and containment logic."""
-        if len(masks) <= 1:
-            return masks, labels
-        
-        # Calculate mask areas
-        mask_areas = []
-        for i, mask in enumerate(masks):
-            area = np.sum(mask > 0)
-            mask_areas.append(area)
-        
-        def should_allow_overlap(idx_i, idx_j, masks_i, masks_j, area_i, area_j):
-            """Determine if overlap should be allowed based on size and containment only."""
-            
-            # Calculate overlap metrics
-            intersection = np.sum((masks_i > 0) & (masks_j > 0))
-            if intersection == 0:
-                return True  # No overlap, both can exist
-            
-            # Containment ratios
-            containment_i_in_j = intersection / area_i if area_i > 0 else 0
-            containment_j_in_i = intersection / area_j if area_j > 0 else 0
-            
-            # Size-based hierarchy: smaller objects can be on/in larger objects
-            size_ratio = area_i / area_j if area_j > 0 else 1.0
-            
-            # If one object is significantly smaller and mostly contained in the larger
-            if size_ratio < 0.5 and containment_i_in_j > 0.7:
-                # Small object i is mostly within large object j
-                return True
-            elif size_ratio > 2.0 and containment_j_in_i > 0.7:
-                # Small object j is mostly within large object i
-                return True
-            
-            # High containment in either direction suggests valid relationship
-            if containment_i_in_j > 0.8 or containment_j_in_i > 0.8:
-                return True
-            
-            return False
-        
-        # Sort by area (process larger objects first)
-        order = sorted(range(len(masks)), key=lambda i: mask_areas[i], reverse=True)
-        
-        keep = []
-        removed = []
-        
-        for i in order:
-            if mask_areas[i] == 0:
-                continue  # Skip empty masks
-                
-            should_keep = True
-            
-            # Check overlap with already kept masks
-            for j in keep:
-                # Calculate overlap
-                intersection = np.sum((masks[i] > 0) & (masks[j] > 0))
-                if intersection == 0:
-                    continue  # No overlap
-                
-                union = np.sum((masks[i] > 0) | (masks[j] > 0))
-                iou = intersection / union if union > 0 else 0
-                
-                # For same object type, always deduplicate
-                if labels[i] == labels[j]:
-                    if iou > 0.5:  # Lower threshold for same objects
-                        should_keep = False
-                        removed.append({
-                            'label': labels[i],
-                            'area': mask_areas[i],
-                            'iou': iou,
-                            'kept_label': labels[j],
-                            'kept_area': mask_areas[j],
-                            'reason': 'duplicate_same_type'
-                        })
-                        break
-                else:
-                    # For different objects, check if overlap is allowed
-                    if not should_allow_overlap(i, j, masks[i], masks[j], mask_areas[i], mask_areas[j]):
-                        # High overlap without valid size/containment relationship
-                        if iou > 0.6:
-                            should_keep = False
-                            removed.append({
-                                'label': labels[i],
-                                'area': mask_areas[i],
-                                'iou': iou,
-                                'kept_label': labels[j],
-                                'kept_area': mask_areas[j],
-                                'reason': 'invalid_overlap'
-                            })
-                            break
-            
-            if should_keep:
-                keep.append(i)
-        
-        # Log what was removed
-        if removed and self.save_debug_visualizations:
-            logger.info(f"Frame {frame_idx}: Removed {len(removed)} masks:")
-            for r in removed:
-                logger.info(f"  - Removed '{r['label']}' (area: {r['area']}) - "
-                          f"IoU: {r['iou']:.2f} with '{r['kept_label']}' - Reason: {r['reason']}")
-        
-        return [masks[i] for i in keep], [labels[i] for i in keep]
-    
     
     
     def _save_sam2_raw_output(self, image: np.ndarray, masks_proposals: np.ndarray, 
