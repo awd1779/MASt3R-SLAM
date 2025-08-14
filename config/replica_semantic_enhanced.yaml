@@ -1,0 +1,132 @@
+# Enhanced Replica Semantic SLAM - All-in-one config
+# Combines the best features from all configs
+
+inherit: "config/base.yaml"
+verbose: true
+
+# Dataset settings optimized for Replica
+dataset:
+  subsample: 1  # Use every frame
+  img_size: 512  # Standard size for 512x512 images
+  center_principle_point: false  # Replica provides good intrinsics
+
+# Tracking settings for indoor scenes
+tracking:
+  fast_forward: 1
+  max_keyframes: 100  # Increased for more keyframes
+  min_match_frac: 0.03  # Lower threshold to accept more frames as keyframes
+
+# Disable visualization to avoid dimension issues
+visualization:
+  enabled: false
+
+# Retrieval settings for indoor scenes
+retrieval:
+  k: 5
+  min_thresh: 0.8
+
+# Complete semantic segmentation configuration
+semantic_segmentation:
+  enabled: true
+  frontend_type: "grounded_sam"
+  excluded_objects: ["picture"]  # Filter out picture to avoid large masks
+  
+  # Model selection configurations - easily customizable
+  grounded_sam2:
+    # Available models with performance specs
+    sam2_models:
+      hiera_tiny:
+        checkpoint: "sam2_hiera_tiny.pt"
+        config: "sam2_hiera_t.yaml"
+        params: 39000000  # 39M params
+        fps_estimate: 50
+        vram_gb: 4
+        accuracy: "good"
+        use_case: "real-time applications"
+      hiera_small:
+        checkpoint: "sam2_hiera_small.pt"
+        config: "sam2_hiera_s.yaml"
+        params: 46000000  # 46M params
+        fps_estimate: 35
+        vram_gb: 5
+        accuracy: "better"
+        use_case: "balanced performance"
+      hiera_b+:
+        checkpoint: "sam2_hiera_base_plus.pt"
+        config: "sam2_hiera_b+.yaml"
+        params: 80800000  # 80.8M params
+        fps_estimate: 20
+        vram_gb: 6
+        accuracy: "high"
+        use_case: "research and high-quality reconstruction"
+      hiera_large:
+        checkpoint: "sam2_hiera_large.pt"
+        config: "sam2_hiera_l.yaml"
+        params: 224400000  # 224.4M params
+        fps_estimate: 10
+        vram_gb: 10
+        accuracy: "best"
+        use_case: "offline processing"
+    
+    grounding_models:
+      grounding_dino_swin-t:
+        checkpoint: "groundingdino_swint_ogc.pth"
+        config: "GroundingDINO_SwinT_OGC.py"
+        params: 23000000  # 23M params
+        fps_estimate: 40
+        vram_gb: 3
+        accuracy: "good for simple scenes"
+      grounding_dino_swin-b:
+        checkpoint: "groundingdino_swinb_cogcoor.pth"
+        config: "GroundingDINO_SwinB_cfg.py"
+        params: 88000000  # 88M params
+        fps_estimate: 25
+        vram_gb: 4
+        accuracy: "excellent for complex scenes"
+      grounding_dino_swin-l:
+        checkpoint: "groundingdino_swinl_cogcoor.pth"
+        config: "GroundingDINO_SwinL_cfg.py"
+        params: 197000000  # 197M params
+        fps_estimate: 15
+        vram_gb: 6
+        accuracy: "best, handles rare objects"
+    
+    # Model selection - CHANGE THESE TO SWITCH MODELS
+    model_selection:
+      model_type: "hiera_large"  # Options: hiera_tiny, hiera_small, hiera_b+, hiera_large
+      grounding_model: "grounding_dino_swin-b"  # Options: grounding_dino_swin-t, grounding_dino_swin-b, grounding_dino_swin-l
+    
+    # Runtime settings
+    device: "cuda:0"
+    confidence_threshold: 0.20  # Lower = more detections
+    text_threshold: 0.20  # Lower = better text detection
+    dtype: "float32"  # Options: "float32", "float16", "bfloat16"
+    
+    # Debug and evaluation settings
+    debug_mode: true  # Enable for evaluation
+    save_debug_visualizations: true  # Save detection images
+    deduplication_iou_threshold: 0.7  # Lower = more duplicate removal
+    mask_refinement_threshold: 0.7
+    
+    # Label filtering parameters
+    filter_empty_labels: true  # Remove empty/invalid labels
+    min_phrase_length: 2  # Minimum characters in label
+    empty_label_max_size: 0.4  # Only filter large empty detections
+  
+  # Backend settings
+  backend:
+    enable_semantic_verification: true
+    enable_semantic_factor: false
+    semantic_weight: 0.05
+
+# Object tracking configuration - Disabled for debugging
+object_tracking:
+  enabled: false
+  save_tracking_decisions: true
+  save_tracking_visualizations: true
+  visualization_interval: 10
+  log_tracking_stats: true
+  stats_interval: 30
+  log_world_positions: true
+  world_position_interval: 10
+  debug_mode: false

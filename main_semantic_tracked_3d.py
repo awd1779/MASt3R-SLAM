@@ -34,7 +34,7 @@ import queue
 # Import semantic components
 from mast3r_slam.semantic_frame import SharedSemanticKeyframes, create_semantic_frame
 from mast3r_slam.grounded_sam2_real import start_real_grounded_sam2_processor
-from mast3r_slam.grounded_sam2_config import GroundedSAM2ModelSelector
+# Model selection moved to config file
 
 # No tracking imports needed
 
@@ -289,23 +289,28 @@ if __name__ == "__main__":
         semantic_device = config["semantic_segmentation"]["grounded_sam2"].get("device", "cuda:1")
         
         logger.info("Using Grounded-SAM2 processor without tracking")
-        # Configure model selector based on config
-        model_selector = GroundedSAM2ModelSelector(
-            target_fps=15,
-            max_vram_gb=24,  # We have 22GB available
-            quality_priority="quality"
-        )
         
-        # Force the models from config
-        sam2_model = config["semantic_segmentation"]["grounded_sam2"]["model_type"]
-        grounding_model = config["semantic_segmentation"]["grounded_sam2"]["grounding_model"]
-        model_selector.sam2_model = sam2_model
-        model_selector.grounding_model = grounding_model
+        # Get models from config
+        sam2_model = config["semantic_segmentation"]["grounded_sam2"]["model_selection"]["model_type"]
+        grounding_model = config["semantic_segmentation"]["grounded_sam2"]["model_selection"]["grounding_model"]
+        
+        # Create model selector dict for the processor
+        model_selector = {
+            'sam2_model': sam2_model,
+            'grounding_model': grounding_model
+        }
+        
+        # Extract model configs for the processor
+        grounded_sam2_config = config["semantic_segmentation"]["grounded_sam2"]
+        model_configs = {
+            'sam2_models': grounded_sam2_config['sam2_models'],
+            'grounding_models': grounded_sam2_config['grounding_models']
+        }
         
         # Start Grounded-SAM2 processor with label-based tracking
-        # Pass model directories explicitly
-        sam2_dir = str(Path.home() / "models" / "segment-anything-2")
-        grounding_dir = str(Path.home() / "models" / "GroundingDINO")
+        # Pass model directories explicitly - use local repo models
+        sam2_dir = str(Path.cwd() / "models" / "segment-anything-2")
+        grounding_dir = str(Path.cwd() / "models" / "GroundingDINO")
         
         # Get configuration from config
         grounded_sam2_config = config["semantic_segmentation"]["grounded_sam2"]
@@ -323,6 +328,7 @@ if __name__ == "__main__":
             vocabulary,
             semantic_device,
             model_selector,
+            model_configs=model_configs,
             confidence_threshold=confidence_threshold,
             object_tracker=None,  # No tracking
             tracking_config=None,  # No tracking config
@@ -481,6 +487,7 @@ if __name__ == "__main__":
             # Send first keyframe to semantic processor with 3D data
             if semantic_frame_queue is not None:
                 img_numpy = img_resized["unnormalized_img"].astype('uint8')
+                logger.info(f"Sending to semantic: frame shape {img_numpy.shape} (H×W×C), 3D points shape {frame.X_canon.shape if frame.X_canon is not None else 'None'}")
                 
                 # Clone keyframe data to avoid CUDA serialization issues
                 keyframe_data = {
@@ -537,6 +544,8 @@ if __name__ == "__main__":
             if semantic_frame_queue is not None:
                 # Convert resized image to numpy array for semantic processing
                 img_numpy = img_resized["unnormalized_img"].astype('uint8')
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(f"Keyframe {kf_idx}: frame shape {img_numpy.shape}, 3D points {frame.X_canon.shape if frame.X_canon is not None else 'None'}")
                 
                 # Clone keyframe data to avoid CUDA serialization issues
                 keyframe_data = {

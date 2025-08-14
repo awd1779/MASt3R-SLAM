@@ -172,15 +172,12 @@ class DenseSemanticReconstructorTrackedV2:
                 pixels_to_write = np.sum(overwrite_mask)
                 
                 if pixels_to_write > 0:
-                    # Use track ID if available, otherwise use instance ID
-                    if has_tracks and instance_id in track_ids:
-                        track_id = track_ids[instance_id]
-                        semantic_mask[overwrite_mask] = track_id
-                        label_id_to_name[track_id] = f"{label_name}_track{track_id}"
-                        track_id_to_label[track_id] = label_name
-                    else:
-                        semantic_mask[overwrite_mask] = instance_id
-                        label_id_to_name[instance_id] = label_name
+                    # Always use local instance ID but make it globally unique
+                    # Format: keyframe_index * 10000 + local_instance_id
+                    # This preserves local IDs while ensuring global uniqueness
+                    global_instance_id = kf_idx * 10000 + instance_id
+                    semantic_mask[overwrite_mask] = global_instance_id
+                    label_id_to_name[global_instance_id] = f"{label_name}_kf{kf_idx}_inst{instance_id}"
                     
                     priority_mask[overwrite_mask] = priority
                     
@@ -254,7 +251,7 @@ class DenseSemanticReconstructorTrackedV2:
             logger.error(f"Keyframe {kf_idx}: Point arrays length mismatch after filtering!")
             raise ValueError("Point correspondence broken during filtering!")
         
-        return points_3d, colors, labels, label_id_to_name, track_id_to_label
+        return points_3d, colors, labels, label_id_to_name, {}
     
     def create_dense_semantic_pointcloud_tracked(self,
                                                 keyframes, 
@@ -289,14 +286,12 @@ class DenseSemanticReconstructorTrackedV2:
             )
             
             if len(points) > 0:
-                # Update global mappings
-                for local_id, name in label_names.items():
-                    if local_id not in global_label_mapping:
-                        global_label_mapping[local_id] = name
+                # Update global mappings with the new global instance IDs
+                for global_id, name in label_names.items():
+                    if global_id not in global_label_mapping:
+                        global_label_mapping[global_id] = name
                 
-                for track_id, label in track_to_label.items():
-                    if track_id not in global_track_mapping:
-                        global_track_mapping[track_id] = label
+                # No track mapping needed since we're not using tracking
                 
                 all_points.append(points)
                 all_colors.append(colors)
@@ -321,17 +316,13 @@ class DenseSemanticReconstructorTrackedV2:
             unique_tracks = set()
             for label_id in np.unique(all_labels):
                 mask = all_labels == label_id
-                if label_id > 0 and label_id in global_track_mapping:
-                    # This is a track ID
+                if label_id > 0:
+                    # Color each global instance ID uniquely
+                    label_name = global_label_mapping.get(label_id, f"unknown_{label_id}")
+                    # Use the global instance ID directly for consistent coloring
                     color = self._get_track_color(label_id)
                     semantic_colors[mask] = color
                     unique_tracks.add(label_id)
-                elif label_id > 0:
-                    # Fall back to instance coloring
-                    label_name = global_label_mapping.get(label_id, f"unknown_{label_id}")
-                    # Simple color based on label ID
-                    color = self._get_track_color(label_id * 100)  # Multiply to spread colors
-                    semantic_colors[mask] = color
             
             logger.info(f"Colored {len(unique_tracks)} unique tracks")
             all_colors = semantic_colors
@@ -343,20 +334,8 @@ class DenseSemanticReconstructorTrackedV2:
         combined_stats = {}  # Combined statistics for summary
         
         for label_id, count in zip(unique_labels, counts):
-            if label_id in global_track_mapping:
-                # Track statistic
-                track_label = global_track_mapping[label_id]
-                if track_label not in track_stats:
-                    track_stats[track_label] = {'count': 0, 'tracks': []}
-                track_stats[track_label]['count'] += count
-                track_stats[track_label]['tracks'].append(label_id)
-                
-                # Also add to combined stats
-                if track_label not in combined_stats:
-                    combined_stats[track_label] = {'count': 0, 'percentage': 0.0}
-                combined_stats[track_label]['count'] += count
-            else:
-                # Regular label statistic
+            if label_id > 0:  # Skip background
+                # Get the label name with keyframe and instance info
                 label_name = global_label_mapping.get(label_id, f"unknown_{label_id}")
                 percentage = (count / len(all_labels)) * 100
                 label_stats[label_name] = {
@@ -364,10 +343,11 @@ class DenseSemanticReconstructorTrackedV2:
                     'percentage': percentage
                 }
                 
-                # Also add to combined stats
-                if label_name not in combined_stats:
-                    combined_stats[label_name] = {'count': 0, 'percentage': 0.0}
-                combined_stats[label_name]['count'] += int(count)
+                # Extract base label for combined stats (remove kf/inst info)
+                base_label = label_name.split('_kf')[0] if '_kf' in label_name else label_name
+                if base_label not in combined_stats:
+                    combined_stats[base_label] = {'count': 0, 'percentage': 0.0}
+                combined_stats[base_label]['count'] += int(count)
         
         # Calculate percentages for combined stats
         for label in combined_stats:

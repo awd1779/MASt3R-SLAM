@@ -8,7 +8,7 @@ DATASET="datasets/room_0"
 echo "Running semantic SLAM with label filtering..."
 python main_semantic_tracked_3d.py \
     --dataset $DATASET \
-    --config config/replica_semantic_auto_tracked_3d_global_improved_filtered.yaml \
+    --config config/replica_semantic_enhanced.yaml \
     --save-as logs/tracked_3d_global_improved_filtered/room_0 \
     --verbose \
     --no-viz

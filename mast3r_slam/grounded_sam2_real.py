@@ -14,7 +14,7 @@ import logging
 
 from mast3r_slam.semantic_frame import encode_rle
 from mast3r_slam.config import config
-from mast3r_slam.grounded_sam2_config import SAM2_MODELS, GROUNDING_MODELS, GroundedSAM2ModelSelector
+# Model configuration moved to config file
 from mast3r_slam.debug_visualizer import DebugVisualizer
 from mast3r_slam.mask_deduplicator import MaskDeduplicator
 
@@ -32,7 +32,8 @@ class RealGroundedSAM2Processor:
                  result_queue: mp.Queue,
                  vocabulary: List[str],
                  device: str = "cuda:1",
-                 model_selector: Optional[GroundedSAM2ModelSelector] = None,
+                 model_selector: Optional[Dict] = None,
+                 model_configs: Optional[Dict] = None,
                  sam2_checkpoint_dir: Optional[str] = None,
                  grounding_dino_checkpoint_dir: Optional[str] = None,
                  confidence_threshold: float = 0.35,
@@ -65,10 +66,17 @@ class RealGroundedSAM2Processor:
         self.sam2_checkpoint_dir = sam2_checkpoint_dir
         self.grounding_dino_checkpoint_dir = grounding_dino_checkpoint_dir
         
-        # Model selection
-        self.model_selector = model_selector or GroundedSAM2ModelSelector(target_fps=15, max_vram_gb=10, quality_priority="quality")
-        self.sam2_model_name = getattr(self.model_selector, 'sam2_model', None) or self.model_selector.select_models()[0]
-        self.grounding_model_name = getattr(self.model_selector, 'grounding_model', None) or self.model_selector.select_models()[1]
+        # Store model configs for use in multiprocess
+        self.model_configs = model_configs
+        
+        # Model selection from config
+        if model_selector:
+            self.sam2_model_name = model_selector.get('sam2_model', 'hiera_large')
+            self.grounding_model_name = model_selector.get('grounding_model', 'grounding_dino_swin-b')
+        else:
+            # Use defaults if no config provided
+            self.sam2_model_name = 'hiera_large'
+            self.grounding_model_name = 'grounding_dino_swin-b'
         
         # Model instances
         self.sam2_predictor = None
@@ -174,29 +182,46 @@ class RealGroundedSAM2Processor:
         search_paths = [
             Path(self.sam2_checkpoint_dir) if self.sam2_checkpoint_dir else None,
             Path(self.grounding_dino_checkpoint_dir) if self.grounding_dino_checkpoint_dir else None,
+            Path.cwd() / "models",  # Local repo models first
             Path.home() / "models",
             Path.home() / "libs",
             Path("/workspace"),
-            Path.cwd() / "models",
         ]
         search_paths = [p for p in search_paths if p]
         
         sam2_checkpoint = sam2_config = grounding_checkpoint = grounding_config = None
         
-        # SAM2 filename mapping - check older versions first for compatibility
-        sam2_files = {
-            "hiera_tiny": ["sam2_hiera_tiny.pt", "sam2.1_hiera_tiny.pt"],
-            "hiera_small": ["sam2_hiera_small.pt", "sam2.1_hiera_small.pt"],
-            "hiera_b+": ["sam2_hiera_base_plus.pt", "sam2.1_hiera_base_plus.pt"],
-            "hiera_base+": ["sam2_hiera_base_plus.pt", "sam2.1_hiera_base_plus.pt"],
-            "hiera_large": ["sam2_hiera_large.pt", "sam2.1_hiera_large.pt"]
-        }.get(self.sam2_model_name, [])
-        
-        grounding_files = {
-            "grounding_dino_swin-t": "groundingdino_swint_ogc.pth",
-            "grounding_dino_swin-b": "groundingdino_swinb_cogcoor.pth",
-            "grounding_dino_swin-l": "groundingdino_swinl_cogcoor.pth"
-        }.get(self.grounding_model_name, "")
+        # Use model configs if provided, otherwise use fallback
+        if self.model_configs and 'sam2_models' in self.model_configs:
+            sam2_models = self.model_configs['sam2_models']
+            grounding_models = self.model_configs['grounding_models']
+            
+            # Get files from config
+            primary_sam2_file = sam2_models[self.sam2_model_name]["checkpoint"]
+            sam2_files = [primary_sam2_file]
+            if "sam2_" in primary_sam2_file:
+                # Add fallback for sam2.1 versions
+                fallback_file = primary_sam2_file.replace("sam2_", "sam2.1_")
+                sam2_files.append(fallback_file)
+            
+            grounding_files = grounding_models[self.grounding_model_name]["checkpoint"]
+        else:
+            # Fallback to hardcoded mapping
+            sam2_model_files = {
+                "hiera_tiny": ["sam2_hiera_tiny.pt", "sam2.1_hiera_tiny.pt"],
+                "hiera_small": ["sam2_hiera_small.pt", "sam2.1_hiera_small.pt"],
+                "hiera_b+": ["sam2_hiera_base_plus.pt", "sam2.1_hiera_base_plus.pt"],
+                "hiera_large": ["sam2_hiera_large.pt", "sam2.1_hiera_large.pt"]
+            }
+            
+            grounding_model_files = {
+                "grounding_dino_swin-t": "groundingdino_swint_ogc.pth",
+                "grounding_dino_swin-b": "groundingdino_swinb_cogcoor.pth",
+                "grounding_dino_swin-l": "groundingdino_swinl_cogcoor.pth"
+            }
+            
+            sam2_files = sam2_model_files.get(self.sam2_model_name, ["sam2_hiera_large.pt"])
+            grounding_files = grounding_model_files.get(self.grounding_model_name, "groundingdino_swinb_cogcoor.pth")
         
         for path in search_paths:
             # Check SAM2
@@ -246,14 +271,17 @@ class RealGroundedSAM2Processor:
             logger.info(f"Loading SAM2 model: {self.sam2_model_name}")
             
             # Determine config name for SAM2
-            config_map = {
-                "tiny": "sam2_hiera_t.yaml",
-                "small": "sam2_hiera_s.yaml", 
-                "b+": "sam2_hiera_b+.yaml",
-                "base_plus": "sam2_hiera_b+.yaml",
-                "large": "sam2_hiera_l.yaml"
-            }
-            config_name = next((v for k, v in config_map.items() if k in self.sam2_model_name), "sam2_hiera_b+.yaml")
+            if self.model_configs and 'sam2_models' in self.model_configs:
+                config_name = self.model_configs['sam2_models'][self.sam2_model_name]["config"]
+            else:
+                # Fallback config mapping
+                sam2_config_files = {
+                    "hiera_tiny": "sam2_hiera_t.yaml",
+                    "hiera_small": "sam2_hiera_s.yaml",
+                    "hiera_b+": "sam2_hiera_b+.yaml",
+                    "hiera_large": "sam2_hiera_l.yaml"
+                }
+                config_name = sam2_config_files.get(self.sam2_model_name, "sam2_hiera_l.yaml")
             
             # Initialize SAM2 with compatibility handling
             try:
@@ -279,19 +307,30 @@ class RealGroundedSAM2Processor:
             
             # Find config if not provided
             if not grounding_cfg:
+                # Get config file from model configs or fallback
+                if self.model_configs and 'grounding_models' in self.model_configs:
+                    config_filename = self.model_configs['grounding_models'][self.grounding_model_name]["config"]
+                else:
+                    # Fallback config mapping
+                    grounding_config_files = {
+                        "grounding_dino_swin-t": "GroundingDINO_SwinT_OGC.py",
+                        "grounding_dino_swin-b": "GroundingDINO_SwinB_cfg.py",
+                        "grounding_dino_swin-l": "GroundingDINO_SwinL_cfg.py"
+                    }
+                    config_filename = grounding_config_files.get(self.grounding_model_name, "GroundingDINO_SwinB_cfg.py")
+                
                 config_paths = [
-                    Path.home() / "Grounded-SAM-2" / "grounding_dino" / "groundingdino" / "config" / "GroundingDINO_SwinB_cfg.py",
-                    Path(grounding_ckpt).parent.parent / "groundingdino" / "config" / "GroundingDINO_SwinB_cfg.py"
+                    Path.home() / "Grounded-SAM-2" / "grounding_dino" / "groundingdino" / "config" / config_filename,
+                    Path(grounding_ckpt).parent.parent / "groundingdino" / "config" / config_filename
                 ]
                 grounding_cfg = next((str(p) for p in config_paths if p.exists()), None)
                 
             self.grounding_dino = load_model(grounding_cfg, grounding_ckpt, device=self.device)
             self.grounding_dino.eval()
             
-            # Initialize transform to match MAST3R's 512px resolution
-            # Using 512 for long side to maintain consistency with MAST3R processing
+            # Initialize transform WITHOUT resizing since image is already resized by MAST3R
+            # The image comes pre-processed from mast3r's resize_img() function
             self.transform = T.Compose([
-                T.RandomResize([512], max_size=512),  # Match MAST3R's 512px processing
                 T.ToTensor(),
                 T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
             ])
@@ -321,8 +360,13 @@ class RealGroundedSAM2Processor:
             cv2.imwrite(str(debug_dir / "original_image.jpg"), image)
             self._save_frame_debug_info(frame_idx, {'vocabulary': self.vocabulary})
         
-        # Apply transforms
-        image_transformed, _ = self.transform(Image.fromarray(image), None)
+        # Apply transforms (no resizing - image already processed by mast3r)
+        pil_image = Image.fromarray(image)
+        original_size = pil_image.size
+        image_transformed, _ = self.transform(pil_image, None)
+        
+        if self.debug_mode:
+            logger.info(f"GroundingDINO input: {original_size[0]}x{original_size[1]} (W×H) - no resize applied")
         
         all_boxes, all_labels, all_scores = [], [], []
         filtered_detections = []  # Track what was filtered
@@ -852,7 +896,7 @@ class RealGroundedSAM2Processor:
 
 
 def _run_processor_with_tracker(frame_queue, result_queue, vocabulary, device, 
-                               model_selector, confidence_threshold, tracking_config, kwargs):
+                               model_selector, confidence_threshold, tracking_config, model_configs, kwargs):
     """Helper function to run processor with optional tracker creation."""
     # Create tracker in the new process if config is provided
     tracker = None
@@ -865,6 +909,7 @@ def _run_processor_with_tracker(frame_queue, result_queue, vocabulary, device,
         frame_queue, result_queue, vocabulary, device, model_selector, 
         confidence_threshold=confidence_threshold, 
         object_tracker=tracker,
+        model_configs=model_configs,
         **kwargs
     )
     processor.run()
@@ -874,7 +919,8 @@ def start_real_grounded_sam2_processor(frame_queue: mp.Queue,
                                       result_queue: mp.Queue,
                                       vocabulary: List[str],
                                       device: str = "cuda:1",
-                                      model_selector: Optional[GroundedSAM2ModelSelector] = None,
+                                      model_selector: Optional[Dict] = None,
+                                      model_configs: Optional[Dict] = None,
                                       confidence_threshold: float = 0.35,
                                       object_tracker = None,
                                       tracking_config = None,
@@ -884,7 +930,7 @@ def start_real_grounded_sam2_processor(frame_queue: mp.Queue,
     process = mp.Process(
         target=_run_processor_with_tracker,
         args=(frame_queue, result_queue, vocabulary, device, model_selector, 
-              confidence_threshold, tracking_config, kwargs)
+              confidence_threshold, tracking_config, model_configs, kwargs)
     )
     process.start()
     return process
