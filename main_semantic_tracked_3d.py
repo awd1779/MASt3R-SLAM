@@ -32,11 +32,8 @@ from threading import Thread
 import queue
 
 # Import semantic components
-from mast3r_slam.semantic_frame import SharedSemanticKeyframes, create_semantic_frame
-from mast3r_slam.grounded_sam2_real import start_real_grounded_sam2_processor
-# Model selection moved to config file
-
-# No tracking imports needed
+from mast3r_slam.semantic.semantic_frame import SharedSemanticKeyframes
+from mast3r_slam.semantic.grounded_sam2_real import start_real_grounded_sam2_processor
 
 
 def setup_logging(verbose=False):
@@ -63,6 +60,16 @@ def setup_logging(verbose=False):
 
 # Global logger
 logger = logging.getLogger('mast3r_slam')
+
+
+def save_debug_keyframe_image(img_numpy, kf_idx, frame_id):
+    """Save keyframe image for debugging purposes."""
+    import cv2
+    debug_dir = Path("debug_keyframes")
+    debug_dir.mkdir(exist_ok=True)
+    filename = debug_dir / f"keyframe_{kf_idx:03d}_frame_{frame_id:06d}.jpg"
+    cv2.imwrite(str(filename), img_numpy)
+    logger.info(f"Saved debug image: {filename}")
 
 
 def relocalization(frame, keyframes, factor_graph, retrieval_database):
@@ -112,15 +119,7 @@ def relocalization(frame, keyframes, factor_graph, retrieval_database):
 
 
 def run_backend(cfg, model, states, keyframes, semantic_keyframes, semantic_result_queue, K):
-    # Use semantic backend if semantic segmentation is enabled
-    if config.get("semantic_segmentation", {}).get("enabled", False):
-        try:
-            from mast3r_slam.semantic_integration import run_semantic_backend
-            return run_semantic_backend(cfg, model, states, keyframes, semantic_keyframes, semantic_result_queue, K)
-        except ImportError:
-            logger.warning("Semantic integration not available, using standard backend")
-    
-    # Otherwise use standard backend
+    # Standard backend only - semantic processing happens separately
     set_global_config(cfg)
 
     device = keyframes.device
@@ -252,49 +251,36 @@ if __name__ == "__main__":
         semantic_frame_queue = manager.Queue()
         semantic_result_queue = manager.Queue()
         
-        # Get initial vocabulary - try to load from Replica dataset first
+        # Get vocabulary - auto-load for Replica datasets
         vocabulary = config["semantic_segmentation"].get("initial_vocabulary", 
                                                          ["chair", "table", "car", "bottle"])
-        # Sort for consistency
-        vocabulary = sorted(vocabulary)
         
-        # If this is a Replica dataset, try to load vocabulary from info_semantic.json
+        # Auto-load Replica vocabulary if applicable
         if any(pattern in args.dataset for pattern in ["room_", "apartment_", "replica"]):
             try:
-                from mast3r_slam.replica_vocabulary_loader import load_replica_vocabulary, get_scene_specific_vocabulary
-                
-                # Get scene-specific vocabulary (objects actually present)
+                from mast3r_slam.semantic.replica_vocabulary_loader import load_replica_vocabulary, get_scene_specific_vocabulary
                 scene_vocab = get_scene_specific_vocabulary(args.dataset)
                 if scene_vocab:
-                    # Use only objects present in the scene
                     vocabulary = sorted(list(scene_vocab.keys()))
-                    logger.info(f"Using scene-specific vocabulary with {len(vocabulary)} object types")
-                    logger.info(f"Scene vocabulary: {vocabulary}")
+                    logger.info(f"Loaded scene-specific vocabulary: {len(vocabulary)} object types")
                 else:
-                    # Fallback to all possible Replica classes
                     replica_vocab = load_replica_vocabulary(args.dataset)
                     if replica_vocab:
                         vocabulary = sorted(replica_vocab)
-                        logger.info(f"Loaded full Replica vocabulary with {len(vocabulary)} classes (sorted)")
+                        logger.info(f"Loaded Replica vocabulary: {len(vocabulary)} classes")
             except Exception as e:
                 logger.warning(f"Failed to load Replica vocabulary: {e}")
-                logger.info("Using vocabulary from config")
+        else:
+            vocabulary = sorted(vocabulary)
         
-        # Filter out excluded objects if specified
+        # Filter excluded objects
         excluded_objects = config["semantic_segmentation"].get("excluded_objects", [])
         if excluded_objects:
-            original_len = len(vocabulary)
             vocabulary = [obj for obj in vocabulary if obj not in excluded_objects]
-            logger.info(f"Filtered out {original_len - len(vocabulary)} objects: {excluded_objects}")
-            logger.info(f"Final vocabulary: {vocabulary}")
-        
-        # Enable debug mode and visualization saving for inspection
-        logger.info("Debug mode enabled - images will be saved to debug_semantic_pipeline/")
+            logger.info(f"Final vocabulary: {len(vocabulary)} objects after filtering")
         
         # Get device and model settings
         semantic_device = config["semantic_segmentation"]["grounded_sam2"].get("device", "cuda:1")
-        
-        logger.info("Using Grounded-SAM2 processor without tracking")
         
         # Get models from config
         sam2_model = config["semantic_segmentation"]["grounded_sam2"]["model_selection"]["model_type"]
@@ -306,20 +292,14 @@ if __name__ == "__main__":
             'grounding_model': grounding_model
         }
         
-        # Extract model configs for the processor
+        # Setup model configs and directories
         grounded_sam2_config = config["semantic_segmentation"]["grounded_sam2"]
         model_configs = {
             'sam2_models': grounded_sam2_config['sam2_models'],
             'grounding_models': grounded_sam2_config['grounding_models']
         }
-        
-        # Start Grounded-SAM2 processor with label-based tracking
-        # Pass model directories explicitly - use local repo models
         sam2_dir = str(Path.cwd() / "models" / "segment-anything-2")
         grounding_dir = str(Path.cwd() / "models" / "GroundingDINO")
-        
-        # Get configuration from config
-        grounded_sam2_config = config["semantic_segmentation"]["grounded_sam2"]
         confidence_threshold = grounded_sam2_config["confidence_threshold"]
         dtype = grounded_sam2_config.get("dtype", "bfloat16")  # Default to bfloat16 if not specified
         debug_mode = grounded_sam2_config.get("debug_mode", False)
@@ -327,7 +307,7 @@ if __name__ == "__main__":
         deduplication_iou_threshold = grounded_sam2_config.get("deduplication_iou_threshold", 0.9)
         mask_refinement_threshold = grounded_sam2_config.get("mask_refinement_threshold", 0.7)
         
-        # No tracking - just pure semantic segmentation
+        # Start semantic processor (no tracking)
         semantic_processor = start_real_grounded_sam2_processor(
             semantic_frame_queue, 
             semantic_result_queue,
@@ -336,8 +316,8 @@ if __name__ == "__main__":
             model_selector,
             model_configs=model_configs,
             confidence_threshold=confidence_threshold,
-            object_tracker=None,  # No tracking
-            tracking_config=None,  # No tracking config
+            object_tracker=None,
+            tracking_config=None,
             dtype=dtype,
             sam2_checkpoint_dir=sam2_dir,
             grounding_dino_checkpoint_dir=grounding_dir,
@@ -362,32 +342,23 @@ if __name__ == "__main__":
                 semantic_data = semantic_result_queue.get(timeout=0.1)
                 kf_idx = semantic_data.get('keyframe_idx')
                 
-                logger.info(f"Received semantic result for frame {semantic_data.get('frame_id')} with {len(semantic_data.get('instance_ids', []))} instances")
-                
-                # No tracking decisions to collect
-                
                 if kf_idx is not None:
-                    # Direct mapping - no search needed!
-                    logger.info(f"Processing semantic result for keyframe {kf_idx} (frame {semantic_data.get('frame_id')})")
+                    # Direct mapping - no search needed
                     semantic_keyframes.update_semantics(kf_idx, semantic_data)
                     processed_count += 1
                     
-                    if processed_count % 1 == 0:  # Log every result for debugging
+                    if processed_count % 10 == 0:  # Log every 10th result
                         logger.info(f"Processed {processed_count} semantic results")
                 else:
-                    # Fallback for old-style results without keyframe_idx
-                    frame_id = semantic_data['frame_id']
-                    logger.warning(f"Semantic result for frame {frame_id} missing keyframe_idx")
+                    logger.warning(f"Semantic result missing keyframe_idx for frame {semantic_data.get('frame_id')}")
                     
             except queue.Empty:
                 continue
             except Exception as e:
                 logger.error(f"Error processing semantic result: {e}")
-                import traceback
-                traceback.print_exc()
                 continue
         
-        logger.info(f"Semantic processor thread finished. Processed {processed_count} results total.")
+        logger.info(f"Semantic processor thread finished. Total: {processed_count} results.")
     
     if semantic_result_queue is not None:
         semantic_result_thread = Thread(target=continuous_semantic_processor, daemon=True)
@@ -490,33 +461,21 @@ if __name__ == "__main__":
             kf_idx = len(keyframes) - 1
             states.queue_global_optimization(kf_idx)
             
-            # Send first keyframe to semantic processor with 3D data
+            # Send first keyframe to semantic processor
             if semantic_frame_queue is not None:
                 img_numpy = img_resized["unnormalized_img"].astype('uint8')
-                logger.info(f"Sending to semantic: frame shape {img_numpy.shape} (H×W×C), 3D points shape {frame.X_canon.shape if frame.X_canon is not None else 'None'}")
+                logger.info(f"Sending initial keyframe {kf_idx} (frame {i}) to semantic processor")
                 
-                # Save keyframe image for debugging
-                import cv2
-                debug_dir = Path("debug_keyframes")
-                debug_dir.mkdir(exist_ok=True)
-                cv2.imwrite(str(debug_dir / f"keyframe_{kf_idx:03d}_frame_{i:06d}.jpg"), img_numpy)
-                logger.info(f"Saved keyframe image to debug_keyframes/keyframe_{kf_idx:03d}_frame_{i:06d}.jpg")
-                
-                # Clone keyframe data to avoid CUDA serialization issues
-                keyframe_data = {
-                    'img_shape': frame.img_shape.cpu().clone(),
-                    'X_canon': frame.X_canon.cpu().clone() if frame.X_canon is not None else None,
-                    'T_WC': frame.T_WC.matrix().cpu().clone() if hasattr(frame.T_WC, 'matrix') else frame.T_WC.cpu().clone()
-                }
+                # Save debug image if needed
+                if config.get("semantic_segmentation", {}).get("grounded_sam2", {}).get("save_debug_visualizations", False):
+                    save_debug_keyframe_image(img_numpy, kf_idx, i)
                 
                 semantic_msg = {
                     'img': img_numpy,
                     'frame_id': i,
-                    'keyframe_idx': kf_idx,
-                    'keyframe_data': keyframe_data  # Send cloned data instead of full keyframe
+                    'keyframe_idx': kf_idx
                 }
                 semantic_frame_queue.put(semantic_msg)
-                logger.info(f"Sent initial keyframe {kf_idx} (frame {i}) to semantic processor with 3D data")
             
             # Save first keyframe immediately
             if keyframe_saver is not None:
@@ -553,35 +512,20 @@ if __name__ == "__main__":
             kf_idx = len(keyframes) - 1
             states.queue_global_optimization(kf_idx)
             
-            # Send keyframe to semantic processor with 3D data
+            # Send keyframe to semantic processor
             if semantic_frame_queue is not None:
-                # Convert resized image to numpy array for semantic processing
                 img_numpy = img_resized["unnormalized_img"].astype('uint8')
-                if logger.isEnabledFor(logging.DEBUG):
-                    logger.debug(f"Keyframe {kf_idx}: frame shape {img_numpy.shape}, 3D points {frame.X_canon.shape if frame.X_canon is not None else 'None'}")
                 
-                # Save keyframe image for debugging
-                import cv2
-                debug_dir = Path("debug_keyframes")
-                debug_dir.mkdir(exist_ok=True)
-                cv2.imwrite(str(debug_dir / f"keyframe_{kf_idx:03d}_frame_{i:06d}.jpg"), img_numpy)
-                logger.info(f"Saved keyframe image to debug_keyframes/keyframe_{kf_idx:03d}_frame_{i:06d}.jpg")
-                
-                # Clone keyframe data to avoid CUDA serialization issues
-                keyframe_data = {
-                    'img_shape': frame.img_shape.cpu().clone(),
-                    'X_canon': frame.X_canon.cpu().clone() if frame.X_canon is not None else None,
-                    'T_WC': frame.T_WC.matrix().cpu().clone() if hasattr(frame.T_WC, 'matrix') else frame.T_WC.cpu().clone()
-                }
+                # Save debug image if needed
+                if config.get("semantic_segmentation", {}).get("grounded_sam2", {}).get("save_debug_visualizations", False):
+                    save_debug_keyframe_image(img_numpy, kf_idx, i)
                 
                 semantic_msg = {
                     'img': img_numpy,
                     'frame_id': i,
-                    'keyframe_idx': kf_idx,  # Direct mapping to keyframe index
-                    'keyframe_data': keyframe_data  # Send cloned data instead of full keyframe
+                    'keyframe_idx': kf_idx
                 }
                 semantic_frame_queue.put(semantic_msg)
-                logger.info(f"Sent keyframe {kf_idx} (frame {i}) to semantic processor with 3D data")
             
             # Save keyframe data for dense reconstruction
             if keyframe_saver is not None:
@@ -592,34 +536,30 @@ if __name__ == "__main__":
                     if len(states.global_optimizer_tasks) == 0:
                         break
                 time.sleep(0.01)
-        # log time and queue status
+        # Log performance metrics
         if i % 30 == 0:
             FPS = i / (time.time() - fps_timer)
-            logger.info(f"FPS: {FPS}")
+            logger.info(f"FPS: {FPS:.1f}")
             
-            # Monitor semantic queues
             if semantic_frame_queue is not None:
                 input_size = semantic_frame_queue.qsize()
                 output_size = semantic_result_queue.qsize()
-                logger.info(f"Semantic queues: input={input_size}, output={output_size}")
+                if input_size > 0 or output_size > 0:
+                    logger.info(f"Semantic queues: input={input_size}, output={output_size}")
         i += 1
 
-    # Terminate semantic processor and result thread
+    # Terminate semantic processing
     if semantic_frame_queue is not None:
-        semantic_frame_queue.put(None)  # Termination signal
+        semantic_frame_queue.put(None)
         semantic_processor.join()
         
-        # Terminate result processor thread
         terminate_semantic_thread = True
         if semantic_result_thread is not None:
             semantic_result_thread.join(timeout=5.0)
-            logger.info("Semantic result processor thread terminated")
 
     if dataset.save_results:
         save_dir, seq_name = eval.prepare_savedir(args, dataset)
         eval.save_traj(save_dir, f"{seq_name}.txt", dataset.timestamps, keyframes)
-        
-        # No tracking decisions to save
         
         # Save regular reconstruction
         eval.save_reconstruction(
@@ -631,60 +571,31 @@ if __name__ == "__main__":
         
         # Save semantic reconstruction if enabled
         if semantic_keyframes is not None:
-            try:
-                from mast3r_slam.semantic_integration import SemanticSLAMBackend
-                # Create semantic backend for export
-                semantic_backend = SemanticSLAMBackend(
-                    keyframes, semantic_keyframes, K, device
-                )
-            except ImportError:
-                logger.warning("Semantic integration not available, using simplified reconstruction")
-                semantic_backend = None
+            # No semantic backend needed - direct processing only
+            semantic_backend = None
             
-            # Wait for any remaining semantic results to be processed
-            # Give the thread some time to finish processing
+            # Wait for remaining semantic results
             remaining_start = time.time()
             while semantic_result_queue.qsize() > 0 and (time.time() - remaining_start) < 10.0:
-                logger.info(f"Waiting for {semantic_result_queue.qsize()} remaining semantic results...")
                 time.sleep(0.5)
             
-            # Process semantic keyframes with backend (if available)
+            # Count semantic keyframes
             n_keyframes = len(keyframes)
             logger.info(f"Total keyframes: {n_keyframes}")
-            semantic_count = 0
+            semantic_count = sum(1 for kf_idx in range(n_keyframes) 
+                               if semantic_keyframes.has_semantic_data(kf_idx))
+            logger.info(f"Found {semantic_count}/{n_keyframes} keyframes with semantic data")
             
-            if semantic_backend is not None:
-                for kf_idx in range(n_keyframes):
-                    if semantic_keyframes.has_semantic_data(kf_idx):
-                        semantic_backend.process_semantic_keyframe(kf_idx)
-                        semantic_count += 1
-                        logger.info(f"Processed semantic data for keyframe {kf_idx}")
-                logger.info(f"Processed {semantic_count}/{n_keyframes} keyframes with semantic data")
-            else:
-                # Count semantic keyframes without backend processing
-                for kf_idx in range(n_keyframes):
-                    if semantic_keyframes.has_semantic_data(kf_idx):
-                        semantic_count += 1
-                logger.info(f"Found {semantic_count}/{n_keyframes} keyframes with semantic data (no backend processing)")
+            # Export dense semantic point cloud
+            from mast3r_slam.semantic.dense_semantic_reconstruction_tracked_v2 import create_dense_semantic_reconstruction_tracked
             
-            # Export dense semantic point cloud with tracking
-            from mast3r_slam.dense_semantic_reconstruction_tracked_v2 import create_dense_semantic_reconstruction_tracked
+            logger.info("Creating Dense Semantic Reconstruction...")
             
-            logger.info("\n" + "="*60)
-            logger.info("Creating Dense Semantic Reconstruction")
-            logger.info("="*60)
-            
-            # Use default depth range (no tracking config)
-            min_depth = 0.1
-            max_depth = 50.0
-            
-            # Object clustering configuration - Updated based on validation analysis
-            clustering_config = {
-                "spatial_threshold": 1.0,    # 100cm spatial clustering (increased from 0.6m)
-                "temporal_threshold": 25,    # Max 25 keyframes gap (increased from 15)
-                "movement_threshold": 0.8,   # Max 80cm movement (increased from 0.5m)
-                "min_samples": 1            # Allow single detections
-            }
+            # CLUSTERING PIPELINE DOCUMENTATION:
+            # This triggers the enhanced clustering pipeline in enhanced_object_clustering.py
+            # The pipeline uses geometry-based adaptive parameters (no hardcoded object types)
+            # Flow: enhanced_hybrid_cluster_objects() → geometry_based_config → stacking_detection → post_merge
+            clustering_config = None  # Will use geometry-based adaptive configuration
             
             dense_result = create_dense_semantic_reconstruction_tracked(
                 keyframes,
@@ -692,22 +603,21 @@ if __name__ == "__main__":
                 str(save_dir / f"{seq_name}_semantic_dense_tracked_3d.ply"),
                 use_semantic_colors=True,
                 debug=True,
-                semantic_backend=semantic_backend,
-                min_depth=min_depth,
-                max_depth=max_depth,
+                semantic_backend=None,
+                min_depth=0.1,
+                max_depth=50.0,
                 c_conf_threshold=last_msg.C_conf_threshold,  # Use SLAM confidence threshold
                 use_object_clustering=True,  # Enable object clustering
                 clustering_config=clustering_config
             )
             
             if dense_result:
-                logger.info(f"\nDense semantic reconstruction summary:")
+                logger.info(f"Dense semantic reconstruction summary:")
                 logger.info(f"  Total points: {dense_result['num_points']:,}")
                 logger.info(f"  Points per keyframe: {dense_result['num_points'] // dense_result['num_keyframes']:,}")
                 for label, stats in sorted(dense_result['label_stats'].items()):
                     logger.info(f"  {label}: {stats['count']:,} points ({stats['percentage']:.1f}%)")
                 
-                logger.info("High-quality semantic reconstruction uses SLAM confidence filtering for clean point clouds")
             else:
                 logger.warning("No semantic data available for reconstruction")
             
@@ -717,7 +627,7 @@ if __name__ == "__main__":
             
             # Generate and save statistics
             from mast3r_slam.save_semantic_keyframes import create_semantic_stats
-            stats = create_semantic_stats(semantic_keyframes, semantic_backend, len(keyframes))
+            stats = create_semantic_stats(semantic_keyframes, None, len(keyframes))
             stats_file = save_dir / f"{seq_name}_semantic_stats_3d.json"
             import json
             with open(stats_file, 'w') as f:

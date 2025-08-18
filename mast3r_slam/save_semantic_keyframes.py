@@ -6,7 +6,7 @@ import torch
 from pathlib import Path
 from typing import Dict, Optional
 import matplotlib.cm as cm
-from mast3r_slam.semantic_frame import decode_rle
+from mast3r_slam.semantic.semantic_frame import decode_rle
 
 
 def save_semantic_keyframes(savedir: Path, 

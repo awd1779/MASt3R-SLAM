@@ -99,7 +99,7 @@ class DenseSemanticBuilder:
             
     def build_dense_cloud(self, output_path: str, use_semantic_colors: bool = True):
         """Build dense semantic point cloud from saved data."""
-        from mast3r_slam.semantic_frame import decode_rle
+        from mast3r_slam.semantic.semantic_frame import decode_rle
         import matplotlib.cm as cm
         
         all_points = []
