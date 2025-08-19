@@ -9,7 +9,7 @@ import torch
 import numpy as np
 import colorsys
 from pathlib import Path
-from typing import Tuple, Optional, Union
+from typing import Tuple, Optional, Union, Dict
 
 
 def convert_cxcywh_to_xyxy(boxes: torch.Tensor, width: int, height: int) -> torch.Tensor:
@@ -36,7 +36,8 @@ def convert_cxcywh_to_xyxy(boxes: torch.Tensor, width: int, height: int) -> torc
     return boxes_xyxy
 
 
-def generate_track_color(track_id: int, saturation: float = 0.8, value: float = 0.9) -> np.ndarray:
+def generate_track_color(track_id: int, config: Optional[Dict] = None, 
+                        saturation: Optional[float] = None, value: Optional[float] = None) -> np.ndarray:
     """
     Generate a consistent color for each track ID using HSV color space.
     
@@ -44,14 +45,24 @@ def generate_track_color(track_id: int, saturation: float = 0.8, value: float = 
     
     Args:
         track_id: Unique track identifier
+        config: Optional configuration dictionary
         saturation: HSV saturation component (0.0 to 1.0)
         value: HSV value/brightness component (0.0 to 1.0)
     
     Returns:
         RGB color as numpy array [R, G, B] with values 0-255
     """
+    # Load config values if not provided
+    if saturation is None or value is None:
+        from .config_loader import SemanticConfig
+        sem_config = SemanticConfig(config)
+        saturation = saturation if saturation is not None else sem_config.get_track_color_saturation()
+        value = value if value is not None else sem_config.get_track_color_value()
+        golden_ratio = sem_config.get_golden_ratio()
+    else:
+        golden_ratio = 0.618033988749895
+    
     # Use golden ratio for good color distribution
-    golden_ratio = 0.618033988749895
     hue = (track_id * golden_ratio) % 1.0
     
     # Convert HSV to RGB using standard library

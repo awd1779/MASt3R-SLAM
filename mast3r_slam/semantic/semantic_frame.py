@@ -90,17 +90,23 @@ class SemanticFrame(Frame):
 class SharedSemanticKeyframes:
     """Shared memory structure for semantic keyframes."""
     
-    def __init__(self, manager, max_keyframes=1000, h=480, w=640, device="cuda"):
-        self.max_keyframes = max_keyframes
-        self.h, self.w = h, w
-        self.device = device
+    def __init__(self, manager, config: Optional[Dict] = None, max_keyframes: Optional[int] = None, 
+                 h: Optional[int] = None, w: Optional[int] = None):
+        # Load configuration
+        from .config_loader import SemanticConfig
+        sem_config = SemanticConfig(config)
+        
+        # Use config values with explicit parameter overrides
+        self.max_keyframes = max_keyframes if max_keyframes is not None else sem_config.get_max_keyframes()
+        self.h = h if h is not None else sem_config.get_default_image_height()
+        self.w = w if w is not None else sem_config.get_default_image_width()
         self.lock = manager.RLock()
         
         # Unified semantic data storage
-        self.semantic_data = manager.list([None] * max_keyframes)
+        self.semantic_data = manager.list([None] * self.max_keyframes)
         
         # Track which keyframes have semantic data
-        self.has_semantics = torch.zeros(max_keyframes, dtype=torch.bool, device="cpu").share_memory_()
+        self.has_semantics = torch.zeros(self.max_keyframes, dtype=torch.bool, device="cpu").share_memory_()
         
     def update_semantics(self, kf_idx: int, semantic_data: dict):
         """Update semantic data for a keyframe using consolidated structure."""

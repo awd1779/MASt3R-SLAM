@@ -22,20 +22,17 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from .object_clustering import ObjectCluster, ObjectInstance
+from .utils import (
+    compute_3d_bounding_box,
+    compute_bounding_box_overlap_volume,
+    compute_euclidean_distance,
+    extract_base_label
+)
 
 logger = logging.getLogger(__name__)
 
-# Geometry-based adaptive merge parameters
-# These thresholds are computed based on object size and spatial extent
-def get_geometry_based_merge_params(cluster: 'ObjectCluster') -> dict:
-    """
-    DEPRECATED: Use adaptive_parameter_engine.get_adaptive_merge_config() instead.
-    
-    This function is maintained for backward compatibility but now delegates
-    to the unified parameter engine.
-    """
-    from .adaptive_parameter_engine import get_adaptive_merge_config
-    return get_adaptive_merge_config(cluster)
+# Import from adaptive parameter engine directly
+from .adaptive_parameter_engine import get_adaptive_merge_config
 
 
 @dataclass
@@ -76,31 +73,18 @@ def compute_spatial_extent_overlap(cluster1: ObjectCluster, cluster2: ObjectClus
     if len(centroids1) == 0 or len(centroids2) == 0:
         return 0.0
     
-    # Compute bounding boxes
-    min1, max1 = np.min(centroids1, axis=0), np.max(centroids1, axis=0)
-    min2, max2 = np.min(centroids2, axis=0), np.max(centroids2, axis=0)
+    # Use utility functions for bounding box computation
+    bbox1 = compute_3d_bounding_box(centroids1)
+    bbox2 = compute_3d_bounding_box(centroids2)
     
-    # Compute intersection volume
-    intersection_min = np.maximum(min1, min2)
-    intersection_max = np.minimum(max1, max2)
-    
-    # Check if there's any intersection
-    if np.any(intersection_min >= intersection_max):
-        return 0.0
-    
-    # Compute volumes
-    intersection_volume = np.prod(intersection_max - intersection_min)
-    volume1 = np.prod(max1 - min1)
-    volume2 = np.prod(max2 - min2)
-    union_volume = volume1 + volume2 - intersection_volume
-    
-    return intersection_volume / union_volume if union_volume > 0 else 0.0
+    # Use utility function for overlap computation
+    return compute_bounding_box_overlap_volume(bbox1, bbox2)
 
 
 def get_conservative_merge_params(cluster1: ObjectCluster, cluster2: ObjectCluster) -> dict:
     """Extract and consolidate parameter retrieval logic."""
-    params1 = get_geometry_based_merge_params(cluster1)
-    params2 = get_geometry_based_merge_params(cluster2)
+    params1 = get_adaptive_merge_config(cluster1)
+    params2 = get_adaptive_merge_config(cluster2)
     
     return {
         'max_centroid_distance': min(params1['max_centroid_distance'], params2['max_centroid_distance']),
@@ -157,7 +141,6 @@ def compute_geometric_consistency(cluster1: ObjectCluster, cluster2: ObjectClust
     
     else:
         # For smaller objects, check if centroids are reasonably close
-        from .utils import compute_euclidean_distance
         centroid_dist = compute_euclidean_distance(cluster1.avg_centroid, cluster2.avg_centroid)
         
         if centroid_dist <= max_distance:
@@ -170,8 +153,6 @@ def evaluate_merge_candidate(cluster1: ObjectCluster, cluster2: ObjectCluster) -
     """Evaluate if two clusters should be merged."""
     
     # Check semantic compatibility using centralized utility
-    from .utils import extract_base_label
-    
     base_label1 = extract_base_label(cluster1.label)
     base_label2 = extract_base_label(cluster2.label)
     
@@ -183,7 +164,6 @@ def evaluate_merge_candidate(cluster1: ObjectCluster, cluster2: ObjectCluster) -
     
     # Compute metrics
     temporal_overlap = compute_temporal_overlap(cluster1, cluster2)
-    from .utils import compute_euclidean_distance
     centroid_distance = compute_euclidean_distance(cluster1.avg_centroid, cluster2.avg_centroid)
     spatial_extent_overlap = compute_spatial_extent_overlap(cluster1, cluster2)
     geometric_consistency = compute_geometric_consistency(cluster1, cluster2)
@@ -244,7 +224,6 @@ def merge_two_clusters(cluster1: ObjectCluster, cluster2: ObjectCluster, new_clu
     merged_instances = cluster1.instances + cluster2.instances
     
     # Create new unified label using centralized utility
-    from .utils import extract_base_label
     base_label = extract_base_label(cluster1.label)
     merged_label = f"{base_label}_obj_{new_cluster_id:03d}"
     

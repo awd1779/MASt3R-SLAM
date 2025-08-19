@@ -51,23 +51,50 @@ class AdaptiveParameterEngine:
     parameter derivation based on object geometry.
     """
     
-    def __init__(self):
+    def __init__(self, config: Optional[Dict] = None):
         self.geometry_cache = {}  # Cache geometric analysis results
+        self._config_loaded = config is not None
         
-        # Base parameter values (optimized from previous implementations)
-        self.base_params = {
-            'spatial_base': 0.4,      # Base spatial threshold (40cm)
-            'temporal_base': 10,      # Base temporal threshold (10 keyframes)
-            'movement_base': 0.3,     # Base movement threshold (30cm)
-            'merge_base': 0.8,        # Base merge distance multiplier
-        }
-        
-        # Size category thresholds (unified from both modules)
-        self.size_thresholds = {
-            'large': {'volume': 2.0, 'extent': 2.0},    # > 2m³ or > 2m extent
-            'medium': {'volume': 0.1, 'extent': 0.8},   # > 0.1m³ or > 0.8m extent
-            # Everything else is 'small'
-        }
+        # Load configuration from config dict or use defaults
+        if config and 'adaptive_params' in config:
+            # Load from provided config (from YAML)
+            adaptive_config = config['adaptive_params']
+            self.base_params = {
+                'spatial_base': adaptive_config.get('spatial_base', 0.4),
+                'temporal_base': adaptive_config.get('temporal_base', 10),
+                'movement_base': adaptive_config.get('movement_base', 0.3),
+                'merge_base': adaptive_config.get('merge_base', 0.8)
+            }
+            self.size_thresholds = adaptive_config.get('size_thresholds', {
+                'large': {'volume': 2.0, 'extent': 2.0},
+                'medium': {'volume': 0.1, 'extent': 0.8}
+            })
+            self.confidence_weights = adaptive_config.get('confidence_weights', {
+                'large': 0.6,
+                'medium': 0.8,
+                'small': 0.9
+            })
+        else:
+            # Use default values
+            self.base_params = {
+                'spatial_base': 0.4,      # Base spatial threshold (40cm)
+                'temporal_base': 10,      # Base temporal threshold (10 keyframes)
+                'movement_base': 0.3,     # Base movement threshold (30cm)
+                'merge_base': 0.8,        # Base merge distance multiplier
+            }
+            
+            # Size category thresholds (unified from both modules)
+            self.size_thresholds = {
+                'large': {'volume': 2.0, 'extent': 2.0},    # > 2m³ or > 2m extent
+                'medium': {'volume': 0.1, 'extent': 0.8},   # > 0.1m³ or > 0.8m extent
+                # Everything else is 'small'
+            }
+            
+            self.confidence_weights = {
+                'large': 0.6,
+                'medium': 0.8,
+                'small': 0.9
+            }
 
     def analyze_object_geometry(self, points_3d: np.ndarray, cache_key: Optional[str] = None) -> 'GeometricProperties':
         """
@@ -140,13 +167,11 @@ class AdaptiveParameterEngine:
         # Optimized movement threshold (scales with object size)
         movement_threshold = base_movement * max(1.0, geometry.spatial_extent / 1.0)
         
-        # Adaptive confidence weighting
-        if geometry.estimated_size_category == 'large':
-            confidence_weight = 0.6  # More permissive for large objects
-        elif geometry.estimated_size_category == 'small':
-            confidence_weight = 0.9  # Stricter for small objects
-        else:
-            confidence_weight = 0.8  # Balanced for medium objects
+        # Adaptive confidence weighting from config
+        confidence_weight = self.confidence_weights.get(
+            geometry.estimated_size_category, 
+            self.confidence_weights.get('medium', 0.8)
+        )
         
         # Apply optimized bounds
         spatial_threshold = max(0.2, min(spatial_threshold, 5.0))
@@ -293,22 +318,25 @@ class AdaptiveParameterEngine:
 
 
 # Global instance for shared use across modules
-_parameter_engine = AdaptiveParameterEngine()
+_parameter_engine = None
 
 
-def get_parameter_engine() -> AdaptiveParameterEngine:
-    """Get the global parameter engine instance."""
+def get_parameter_engine(config: Optional[Dict] = None) -> AdaptiveParameterEngine:
+    """Get the global parameter engine instance, optionally with config."""
+    global _parameter_engine
+    if _parameter_engine is None or (config and not getattr(_parameter_engine, '_config_loaded', False)):
+        _parameter_engine = AdaptiveParameterEngine(config)
     return _parameter_engine
 
 
 # Convenience functions for backward compatibility
-def get_adaptive_clustering_config(instances, all_points_data: Dict) -> Dict:
+def get_adaptive_clustering_config(instances, all_points_data: Dict, config: Optional[Dict] = None) -> Dict:
     """
     Replacement for geometry_based_clustering_config.get_geometry_based_clustering_config()
     
     This function maintains the same interface but uses the unified parameter engine.
     """
-    engine = get_parameter_engine()
+    engine = get_parameter_engine(config)
     
     # Combine all points for analysis (same logic as original)
     all_points = []
@@ -338,5 +366,5 @@ def get_adaptive_merge_config(cluster) -> Dict:
     
     This function maintains the same interface but uses the unified parameter engine.
     """
-    engine = get_parameter_engine()
+    engine = get_parameter_engine(config)
     return engine.get_merge_config_dict(cluster)

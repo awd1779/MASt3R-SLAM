@@ -60,6 +60,16 @@ def compute_geometric_properties(points_3d: np.ndarray) -> GeometricProperties:
     # Use unified geometric analysis
     geometry_dict = analyze_point_cloud_geometry(points_3d)
     
+    # Determine size category based on volume and extent
+    volume = geometry_dict['volume']
+    extent = geometry_dict['spatial_extent']
+    if volume > 2.0 or extent > 2.0:
+        size_category = 'large'
+    elif volume > 0.1 or extent > 0.8:
+        size_category = 'medium'
+    else:
+        size_category = 'small'
+    
     # Convert to local format
     return GeometricProperties(
         volume=geometry_dict['volume'],
@@ -67,7 +77,7 @@ def compute_geometric_properties(points_3d: np.ndarray) -> GeometricProperties:
         point_density=geometry_dict['point_density'],
         aspect_ratio=geometry_dict['aspect_ratio'],
         compactness=geometry_dict['compactness'],
-        estimated_size_category=geometry_dict['size_category']
+        estimated_size_category=size_category
     )
 
 

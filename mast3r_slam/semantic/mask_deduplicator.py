@@ -1,7 +1,7 @@
 """Mask deduplication utilities for Grounded SAM2 processor."""
 
 import numpy as np
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Optional
 from collections import defaultdict
 import logging
 
@@ -11,8 +11,13 @@ logger = logging.getLogger('mast3r_slam.mask_deduplicator')
 class MaskDeduplicator:
     """Handles deduplication of overlapping masks with different strategies."""
     
-    def __init__(self, debug_mode: bool = False):
-        self.debug_mode = debug_mode
+    def __init__(self, config: Optional[Dict] = None, debug_mode: Optional[bool] = None):
+        from .config_loader import SemanticConfig
+        sem_config = SemanticConfig(config)
+        
+        self.debug_mode = debug_mode if debug_mode is not None else sem_config.get_debug_mode()
+        self.iou_threshold = sem_config.get_overlap_iou_threshold()
+        self.containment_threshold = sem_config.get_containment_threshold()
     
     def deduplicate_masks(self, masks: List[np.ndarray], labels: List[str], 
                          scores: List[float], frame_idx: int) -> Tuple[List[np.ndarray], List[str], List[float]]:
@@ -86,7 +91,7 @@ class MaskDeduplicator:
                 containment = max(intersection / area_i, intersection / area_j)
                 
                 # Remove if significant overlap
-                if iou > 0.8 or containment > 0.9:
+                if iou > self.iou_threshold or containment > self.containment_threshold:
                     # Keep higher confidence mask
                     if scores[i] >= scores[j]:
                         keep_mask[j] = False

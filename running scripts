@@ -1,0 +1,2 @@
+python extract_objects_named.py logs/logs/tracked_3d_global_improved_filtered/room_0/room_0_semantic_dense_tracked_3d.ply
+  logs/logs/tracked_3d_global_improved_filtered/room_0/room_0_semantic_dense_tracked_3d.labels.json ./extracted_objects

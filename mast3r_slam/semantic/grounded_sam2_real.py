@@ -31,36 +31,43 @@ class RealGroundedSAM2Processor:
                  frame_queue: mp.Queue,
                  result_queue: mp.Queue,
                  vocabulary: List[str],
-                 device: str = "cuda:1",
+                 config: Optional[Dict] = None,
+                 device: Optional[str] = None,
                  model_selector: Optional[Dict] = None,
                  model_configs: Optional[Dict] = None,
                  sam2_checkpoint_dir: Optional[str] = None,
                  grounding_dino_checkpoint_dir: Optional[str] = None,
-                 confidence_threshold: float = 0.35,
-                 dtype: str = "bfloat16",
-                 debug_mode: bool = False,
-                 save_debug_visualizations: bool = False,
-                 deduplication_iou_threshold: float = 0.9,
-                 mask_refinement_threshold: float = 0.7,
-                 filter_empty_labels: bool = True,
-                 min_phrase_length: int = 2,
-                 empty_label_max_size: float = 0.4,
+                 confidence_threshold: Optional[float] = None,
+                 dtype: Optional[str] = None,
+                 debug_mode: Optional[bool] = None,
+                 save_debug_visualizations: Optional[bool] = None,
+                 deduplication_iou_threshold: Optional[float] = None,
+                 filter_empty_labels: Optional[bool] = None,
+                 min_phrase_length: Optional[int] = None,
                  object_tracker = None):
         self.frame_queue = frame_queue
         self.result_queue = result_queue
         self.vocabulary = vocabulary
-        self.device = device
-        self.confidence_threshold = confidence_threshold
-        self.debug_mode = debug_mode
-        self.save_debug_visualizations = save_debug_visualizations
-        self.deduplication_iou_threshold = deduplication_iou_threshold
-        self.mask_refinement_threshold = mask_refinement_threshold
-        self.filter_empty_labels = filter_empty_labels
-        self.min_phrase_length = min_phrase_length
-        self.empty_label_max_size = empty_label_max_size
+        
+        # Load configuration
+        from .config_loader import SemanticConfig
+        sem_config = SemanticConfig(config)
+        
+        # Use config values with explicit parameter overrides
+        self.device = device if device is not None else sem_config.get_device()
+        self.confidence_threshold = confidence_threshold if confidence_threshold is not None else sem_config.get_confidence_threshold()
+        self.debug_mode = debug_mode if debug_mode is not None else sem_config.get_debug_mode()
+        self.save_debug_visualizations = save_debug_visualizations if save_debug_visualizations is not None else sem_config.get_save_debug_visualizations()
+        self.deduplication_iou_threshold = deduplication_iou_threshold if deduplication_iou_threshold is not None else sem_config.get_deduplication_iou_threshold()
+        self.filter_empty_labels = filter_empty_labels if filter_empty_labels is not None else sem_config.get_filter_empty_labels()
+        self.min_phrase_length = min_phrase_length if min_phrase_length is not None else sem_config.get_min_phrase_length()
+        
+        # Store config for later use
+        self.sem_config = sem_config
         
         # Convert dtype string to torch dtype
-        self.dtype = {'float32': torch.float32, 'float16': torch.float16, 'bfloat16': torch.bfloat16}.get(dtype, torch.bfloat16)
+        dtype_str = dtype if dtype is not None else sem_config.get_dtype()
+        self.dtype = {'float32': torch.float32, 'float16': torch.float16, 'bfloat16': torch.bfloat16}.get(dtype_str, torch.float32)
         
         # Model directories
         self.sam2_checkpoint_dir = sam2_checkpoint_dir
@@ -103,7 +110,7 @@ class RealGroundedSAM2Processor:
         self.debug_visualizer = None
         if self.save_debug_visualizations:
             self.debug_visualizer = DebugVisualizer(DEBUG_OUTPUT_DIR, save_debug_visualizations)
-        self.mask_deduplicator = MaskDeduplicator(debug_mode=self.debug_mode)
+        self.mask_deduplicator = MaskDeduplicator(config=config, debug_mode=self.debug_mode)
         
     def visualize_detections(self, image: np.ndarray, boxes: torch.Tensor, labels: List[str], 
                              scores: torch.Tensor, frame_idx: int, stage: str = "grounding"):
@@ -342,7 +349,6 @@ class RealGroundedSAM2Processor:
         # Label filtering parameters
         min_phrase_length = getattr(self, 'min_phrase_length', 2)
         filter_empty_labels = getattr(self, 'filter_empty_labels', True)
-        empty_label_max_size = getattr(self, 'empty_label_max_size', 0.4)
         
         # Process each vocabulary word
         for vocab_word in self.vocabulary:
@@ -354,7 +360,7 @@ class RealGroundedSAM2Processor:
                     image=image_transformed,
                     caption=caption,
                     box_threshold=self.confidence_threshold,
-                    text_threshold=config.get("semantic_segmentation", {}).get("grounded_sam2", {}).get("text_threshold", 0.25),
+                    text_threshold=self.sem_config.get_text_threshold(),
                     device=self.device
                 )
             
@@ -582,7 +588,7 @@ class RealGroundedSAM2Processor:
                     h, w = mask.shape
                     mask_percentage = (mask_pixels / (h * w)) * 100
                     
-                    if mask_percentage > 50:
+                    if mask_percentage > self.sem_config.get_large_mask_threshold():
                         self._log_processing_step(f"Large mask for {label}: {mask_percentage:.1f}% of image", frame_idx, "warning")
                     
                     masks.append(mask)
@@ -759,7 +765,7 @@ class RealGroundedSAM2Processor:
         logger.info("Semantic processor terminated.")
 
 
-def _run_processor_with_tracker(frame_queue, result_queue, vocabulary, device, 
+def _run_processor_with_tracker(frame_queue, result_queue, vocabulary, config, device, 
                                model_selector, confidence_threshold, tracking_config, model_configs, kwargs):
     """Helper function to run processor with optional tracker creation."""
     # Create tracker in the new process if config is provided
@@ -770,7 +776,10 @@ def _run_processor_with_tracker(frame_queue, result_queue, vocabulary, device,
         logger.info("Created object tracker in semantic processor process")
     
     processor = RealGroundedSAM2Processor(
-        frame_queue, result_queue, vocabulary, device, model_selector, 
+        frame_queue, result_queue, vocabulary, 
+        config=config,
+        device=device, 
+        model_selector=model_selector,
         confidence_threshold=confidence_threshold, 
         object_tracker=tracker,
         model_configs=model_configs,
@@ -782,10 +791,11 @@ def _run_processor_with_tracker(frame_queue, result_queue, vocabulary, device,
 def start_real_grounded_sam2_processor(frame_queue: mp.Queue, 
                                       result_queue: mp.Queue,
                                       vocabulary: List[str],
-                                      device: str = "cuda:1",
+                                      config: Optional[Dict] = None,
+                                      device: Optional[str] = None,
                                       model_selector: Optional[Dict] = None,
                                       model_configs: Optional[Dict] = None,
-                                      confidence_threshold: float = 0.35,
+                                      confidence_threshold: Optional[float] = None,
                                       object_tracker = None,
                                       tracking_config = None,
                                       **kwargs) -> mp.Process:
@@ -793,7 +803,7 @@ def start_real_grounded_sam2_processor(frame_queue: mp.Queue,
     
     process = mp.Process(
         target=_run_processor_with_tracker,
-        args=(frame_queue, result_queue, vocabulary, device, model_selector, 
+        args=(frame_queue, result_queue, vocabulary, config, device, model_selector, 
               confidence_threshold, tracking_config, model_configs, kwargs)
     )
     process.start()

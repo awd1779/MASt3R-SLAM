@@ -59,10 +59,10 @@ logger = logging.getLogger(__name__)
 def enhanced_hybrid_cluster_objects(instances: List[ObjectInstance],
                                    all_points_data: Optional[Dict[int, np.ndarray]] = None,
                                    global_config: Optional[Dict] = None,
-                                   use_adaptive_params: bool = True,
-                                   use_stacking_detection: bool = True,
-                                   use_post_merge: bool = True,
-                                   debug: bool = False) -> List[ObjectCluster]:
+                                   use_adaptive_params: Optional[bool] = None,
+                                   use_stacking_detection: Optional[bool] = None,
+                                   use_post_merge: Optional[bool] = None,
+                                   debug: Optional[bool] = None) -> List[ObjectCluster]:
     """
     Enhanced hybrid clustering with advanced over-segmentation solutions.
     
@@ -90,6 +90,17 @@ def enhanced_hybrid_cluster_objects(instances: List[ObjectInstance],
         logger.info("No instances to cluster")
         return []
     
+    # Extract pipeline settings from global_config if provided
+    pipeline_config = {}
+    if global_config and 'pipeline' in global_config:
+        pipeline_config = global_config['pipeline']
+    
+    # Use provided parameters or fall back to config defaults
+    use_adaptive_params = use_adaptive_params if use_adaptive_params is not None else pipeline_config.get('use_adaptive_params', True)
+    use_stacking_detection = use_stacking_detection if use_stacking_detection is not None else pipeline_config.get('use_stacking_detection', True)
+    use_post_merge = use_post_merge if use_post_merge is not None else pipeline_config.get('use_post_merge', True)
+    debug = debug if debug is not None else pipeline_config.get('debug', False)
+    
     logger.info(f"Starting enhanced clustering of {len(instances)} object instances")
     logger.info(f"Pipeline: adaptive_params={use_adaptive_params}, "
                f"stacking_detection={use_stacking_detection}, "
@@ -98,7 +109,7 @@ def enhanced_hybrid_cluster_objects(instances: List[ObjectInstance],
     # Step 1: Determine clustering configuration
     if use_adaptive_params and all_points_data:
         # Use geometry-based adaptive configuration (no hardcoded object lists!)
-        config = get_adaptive_clustering_config(instances, all_points_data)
+        config = get_adaptive_clustering_config(instances, all_points_data, global_config)
         
         if debug:
             logger.info("GEOMETRY-BASED ADAPTIVE CLUSTERING CONFIGURATION:")
@@ -106,13 +117,20 @@ def enhanced_hybrid_cluster_objects(instances: List[ObjectInstance],
             logger.info(f"  No hardcoded object categories - fully adaptive!")
             
     else:
-        # Use provided config or defaults
-        config = global_config or {
-            'spatial_threshold': 1.0,
-            'temporal_threshold': 25, 
-            'movement_threshold': 0.8,
-            'min_samples': 1
-        }
+        # Use provided config or load defaults from config
+        if global_config and 'base_params' in global_config:
+            config = global_config['base_params']
+        elif global_config:
+            # Legacy support - use global_config directly
+            config = global_config
+        else:
+            # Hard-coded defaults as last resort
+            config = {
+                'spatial_threshold': 1.0,
+                'temporal_threshold': 25, 
+                'movement_threshold': 0.8,
+                'min_samples': 1
+            }
         
         if use_adaptive_params and not all_points_data:
             logger.warning("Adaptive params requested but no point cloud data available - using defaults")
@@ -125,11 +143,15 @@ def enhanced_hybrid_cluster_objects(instances: List[ObjectInstance],
     if use_stacking_detection and all_points_data:
         logger.info("Applying point cloud stacking detection...")
         
+        # Get stacking detection parameters from config
+        stacking_params = global_config.get('stacking_detection', {}) if global_config else {}
+        min_confidence = stacking_params.get('min_confidence', 0.3)
+        
         try:
             stacking_clusters = apply_stacking_detection(
                 instances, 
                 all_points_data, 
-                min_confidence=0.3
+                min_confidence=min_confidence
             )
             
             if stacking_clusters:

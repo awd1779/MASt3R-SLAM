@@ -247,7 +247,7 @@ if __name__ == "__main__":
     
     if config.get("semantic_segmentation", {}).get("enabled", False):
         logger.info("Initializing semantic segmentation without tracking...")
-        semantic_keyframes = SharedSemanticKeyframes(manager, max_keyframes=1000, h=h, w=w)
+        semantic_keyframes = SharedSemanticKeyframes(manager, config=config, h=h, w=w)
         semantic_frame_queue = manager.Queue()
         semantic_result_queue = manager.Queue()
         
@@ -279,8 +279,7 @@ if __name__ == "__main__":
             vocabulary = [obj for obj in vocabulary if obj not in excluded_objects]
             logger.info(f"Final vocabulary: {len(vocabulary)} objects after filtering")
         
-        # Get device and model settings
-        semantic_device = config["semantic_segmentation"]["grounded_sam2"].get("device", "cuda:1")
+        # Device will be set after parsing config
         
         # Get models from config
         sam2_model = config["semantic_segmentation"]["grounded_sam2"]["model_selection"]["model_type"]
@@ -300,20 +299,29 @@ if __name__ == "__main__":
         }
         sam2_dir = str(Path.cwd() / "models" / "segment-anything-2")
         grounding_dir = str(Path.cwd() / "models" / "GroundingDINO")
-        confidence_threshold = grounded_sam2_config["confidence_threshold"]
-        dtype = grounded_sam2_config.get("dtype", "bfloat16")  # Default to bfloat16 if not specified
-        debug_mode = grounded_sam2_config.get("debug_mode", False)
-        save_debug_visualizations = grounded_sam2_config.get("save_debug_visualizations", False)
-        deduplication_iou_threshold = grounded_sam2_config.get("deduplication_iou_threshold", 0.9)
-        mask_refinement_threshold = grounded_sam2_config.get("mask_refinement_threshold", 0.7)
+        
+        # Read from new config structure
+        runtime_config = grounded_sam2_config.get("runtime", {})
+        debug_config = grounded_sam2_config.get("debug", {})
+        mask_config = config.get("semantic_segmentation", {}).get("mask_processing", {})
+        
+        confidence_threshold = runtime_config.get("confidence_threshold", 0.35)
+        dtype = runtime_config.get("dtype", "bfloat16")  # Default to bfloat16 if not specified
+        debug_mode = debug_config.get("debug_mode", False)
+        save_debug_visualizations = debug_config.get("save_debug_visualizations", False)
+        deduplication_iou_threshold = mask_config.get("deduplication_iou_threshold", 0.9)
+        
+        # Get device from new config structure
+        semantic_device = runtime_config.get("device", "cuda")
         
         # Start semantic processor (no tracking)
         semantic_processor = start_real_grounded_sam2_processor(
             semantic_frame_queue, 
             semantic_result_queue,
             vocabulary,
-            semantic_device,
-            model_selector,
+            config=config,  # Pass full config
+            device=semantic_device,
+            model_selector=model_selector,
             model_configs=model_configs,
             confidence_threshold=confidence_threshold,
             object_tracker=None,
@@ -323,8 +331,7 @@ if __name__ == "__main__":
             grounding_dino_checkpoint_dir=grounding_dir,
             debug_mode=debug_mode,
             save_debug_visualizations=save_debug_visualizations,
-            deduplication_iou_threshold=deduplication_iou_threshold,
-            mask_refinement_threshold=mask_refinement_threshold
+            deduplication_iou_threshold=deduplication_iou_threshold
         )
     
     # Start continuous semantic result processor thread
@@ -601,12 +608,10 @@ if __name__ == "__main__":
                 keyframes,
                 semantic_keyframes,
                 str(save_dir / f"{seq_name}_semantic_dense_tracked_3d.ply"),
+                config=config,  # Pass full config
                 use_semantic_colors=True,
                 debug=True,
-                semantic_backend=None,
-                min_depth=0.1,
-                max_depth=50.0,
-                c_conf_threshold=last_msg.C_conf_threshold,  # Use SLAM confidence threshold
+                c_conf_threshold=last_msg.C_conf_threshold,  # Use SLAM confidence threshold  
                 use_object_clustering=True,  # Enable object clustering
                 clustering_config=clustering_config
             )

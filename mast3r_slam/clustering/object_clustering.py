@@ -133,24 +133,6 @@ class ObjectCluster:
         return compute_spatial_extent_from_centroids(centroids)
 
 
-def compute_object_centroid(points_3d: np.ndarray, labels: np.ndarray, object_id: int) -> np.ndarray:
-    """
-    Compute 3D centroid of an object instance from its point cloud.
-    
-    Args:
-        points_3d: (N, 3) array of 3D world coordinates
-        labels: (N,) array of semantic labels per point
-        object_id: Target object ID to compute centroid for
-    
-    Returns:
-        centroid_3d: (3,) array [x, y, z] centroid coordinates
-    """
-    from .utils import compute_object_centroid as _compute_centroid
-    return _compute_centroid(points_3d, labels, object_id)
-
-
-
-
 
 def create_object_cluster(instances: List[ObjectInstance], cluster_id: int = 0) -> ObjectCluster:
     """
@@ -331,39 +313,3 @@ def dbscan_spatial_cluster(instances: List[ObjectInstance],
             clusters.append(cluster)
     
     return clusters
-
-
-if __name__ == "__main__":
-    # Basic testing and demonstration
-    logger.setLevel(logging.DEBUG)
-    
-    # Create some sample instances for testing
-    sample_instances = [
-        ObjectInstance(
-            global_id=1, local_id=1, keyframe_idx=0, label="table",
-            confidence=0.9, centroid_3d=np.array([1.0, 2.0, 0.5]),
-            num_points=100, point_indices=np.arange(100)
-        ),
-        ObjectInstance(
-            global_id=10001, local_id=1, keyframe_idx=1, label="table",
-            confidence=0.8, centroid_3d=np.array([1.1, 2.1, 0.5]),
-            num_points=120, point_indices=np.arange(120)
-        ),
-        ObjectInstance(
-            global_id=20001, local_id=1, keyframe_idx=2, label="chair",
-            confidence=0.7, centroid_3d=np.array([3.0, 1.0, 0.4]),
-            num_points=80, point_indices=np.arange(80)
-        ),
-    ]
-    
-    # Test basic functionality
-    print(f"\nCreated {len(sample_instances)} sample instances")
-    
-    # Test cluster creation
-    test_cluster = create_object_cluster(sample_instances[:2], 1)
-    print(f"Created test cluster with {len(test_cluster.instances)} instances")
-    print(f"Cluster spans keyframes: {test_cluster.keyframes}")
-    
-    # Test spatial clustering
-    spatial_clusters = dbscan_spatial_cluster(sample_instances, 0.5, 1)
-    print(f"DBSCAN created {len(spatial_clusters)} spatial clusters")

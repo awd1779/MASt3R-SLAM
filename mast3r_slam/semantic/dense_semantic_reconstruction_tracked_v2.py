@@ -7,7 +7,8 @@ from pathlib import Path
 import cv2
 from plyfile import PlyData, PlyElement
 from mast3r_slam.semantic.semantic_frame import decode_rle
-from mast3r_slam.clustering.object_clustering import ObjectInstance, compute_object_centroid
+from mast3r_slam.clustering.object_clustering import ObjectInstance
+from mast3r_slam.clustering.utils import compute_object_centroid
 from mast3r_slam.clustering.enhanced_object_clustering import enhanced_hybrid_cluster_objects
 import logging
 import json
@@ -18,24 +19,43 @@ logger = logging.getLogger('mast3r_slam.dense_reconstruction_tracked')
 class DenseSemanticReconstructorTrackedV2:
     """Create dense semantic point clouds with track ID coloring."""
     
-    def __init__(self, device: str = "cuda", debug: bool = False, semantic_backend=None,
-                 min_depth: float = 0.1, max_depth: float = 50.0, c_conf_threshold: float = 1.5,
-                 use_object_clustering: bool = True, clustering_config: Optional[Dict] = None):
-        self.device = device
-        self.debug = debug
-        self.semantic_backend = semantic_backend
-        self.min_depth = min_depth
-        self.max_depth = max_depth
-        self.c_conf_threshold = c_conf_threshold
-        self.use_object_clustering = use_object_clustering
+    def __init__(self, config: Optional[Dict] = None, device: Optional[str] = None, debug: Optional[bool] = None,
+                 min_depth: Optional[float] = None, max_depth: Optional[float] = None, 
+                 c_conf_threshold: Optional[float] = None,
+                 use_object_clustering: Optional[bool] = None, clustering_config: Optional[Dict] = None):
+        # Load configuration
+        from mast3r_slam.semantic.config_loader import SemanticConfig
+        self.sem_config = SemanticConfig(config)
         
-        # Clustering config - defaults will be provided by geometry-based adaptive system
-        self.clustering_config = clustering_config
+        # Use config values with explicit parameter overrides
+        self.device = device if device is not None else "cuda"
+        self.debug = debug if debug is not None else self.sem_config.get_debug_mode()
+        self.min_depth = min_depth if min_depth is not None else self.sem_config.get_min_depth()
+        self.max_depth = max_depth if max_depth is not None else self.sem_config.get_max_depth()
+        self.c_conf_threshold = c_conf_threshold if c_conf_threshold is not None else self.sem_config.get_c_conf_threshold()
+        self.use_object_clustering = use_object_clustering if use_object_clustering is not None else self.sem_config.get_clustering_enabled()
+        
+        # Build comprehensive clustering config from YAML
+        if clustering_config is not None:
+            self.clustering_config = clustering_config
+        else:
+            # Build config from YAML settings
+            self.clustering_config = {
+                'pipeline': self.sem_config.get_clustering_pipeline_config(),
+                'base_params': self.sem_config.get_clustering_base_params(),
+                'adaptive_params': self.sem_config.get_clustering_adaptive_params(),
+                'merge_params': self.sem_config.get_clustering_merge_params(),
+                'stacking_detection': self.sem_config.get_stacking_detection_params(),
+                'temporal_consistency': self.sem_config.get_temporal_consistency_params(),
+                # Legacy support
+                'config': self.sem_config.get_clustering_config()
+            }
     
     def _get_track_color(self, track_id: int) -> np.ndarray:
         """Get a consistent color for each track ID using shared utility."""
         from .utils import generate_track_color
-        return generate_track_color(track_id)
+        # Pass the config to generate_track_color
+        return generate_track_color(track_id, config={'semantic_segmentation': self.sem_config.semantic_config})
     
     def project_semantic_keyframe_tracked(self, keyframe, semantic_data, kf_idx):
         """Project a single keyframe to 3D with track ID support."""
@@ -106,9 +126,9 @@ class DenseSemanticReconstructorTrackedV2:
                 confidence = semantic_data.get('confidences', {}).get(instance_id, 0.5)
                 
                 # Calculate priority (smaller objects get higher priority)
-                size_priority = 1.0 - mask_size_ratio  # Smaller = higher priority
-                label_priority = 0.5 if label_name != 'unknown' and label_name != 'background' else 0.0
-                confidence_priority = confidence * 0.3
+                size_priority = (1.0 - mask_size_ratio) * self.sem_config.get_size_priority()  # Smaller = higher priority
+                label_priority = self.sem_config.get_label_priority() if label_name != 'unknown' and label_name != 'background' else 0.0
+                confidence_priority = confidence * self.sem_config.get_confidence_priority()
                 combined_priority = size_priority + label_priority + confidence_priority
                 
                 mask_instances.append({
@@ -142,9 +162,9 @@ class DenseSemanticReconstructorTrackedV2:
                 
                 if pixels_to_write > 0:
                     # Always use local instance ID but make it globally unique
-                    # Format: keyframe_index * 10000 + local_instance_id
+                    # Format: keyframe_index * multiplier + local_instance_id
                     # This preserves local IDs while ensuring global uniqueness
-                    global_instance_id = kf_idx * 10000 + instance_id
+                    global_instance_id = kf_idx * self.sem_config.get_global_id_multiplier() + instance_id
                     semantic_mask[overwrite_mask] = global_instance_id
                     label_id_to_name[global_instance_id] = f"{label_name}_kf{kf_idx}_inst{instance_id}"
                     
@@ -248,7 +268,7 @@ class DenseSemanticReconstructorTrackedV2:
             # Create ObjectInstance
             instance = ObjectInstance(
                 global_id=global_id,
-                local_id=global_id % 10000,  # Extract local ID
+                local_id=global_id % self.sem_config.get_global_id_multiplier(),  # Extract local ID
                 keyframe_idx=kf_idx,
                 label=clean_label,
                 confidence=1.0,  # Default confidence
@@ -377,14 +397,12 @@ class DenseSemanticReconstructorTrackedV2:
             
             logger.info(f"Prepared point cloud data for {len(all_points_data)} instances")
             
-            # Use enhanced clustering with all advanced features
+            # Use enhanced clustering with config-driven parameters
             clusters = enhanced_hybrid_cluster_objects(
                 instances=all_instances,
                 all_points_data=all_points_data,
                 global_config=self.clustering_config,
-                use_adaptive_params=True,
-                use_stacking_detection=True,
-                use_post_merge=True,
+                # Parameters will be extracted from config by enhanced_hybrid_cluster_objects
                 debug=self.debug
             )
             
@@ -593,19 +611,26 @@ class DenseSemanticReconstructorTrackedV2:
 def create_dense_semantic_reconstruction_tracked(keyframes,
                                                semantic_keyframes,
                                                output_file: str,
-                                               use_semantic_colors: bool = True,
-                                               debug: bool = False,
-                                               semantic_backend=None,
-                                               min_depth: float = 0.1,
-                                               max_depth: float = 50.0,
-                                               c_conf_threshold: float = 1.5,
-                                               use_object_clustering: bool = True,
+                                               config: Optional[Dict] = None,
+                                               use_semantic_colors: Optional[bool] = None,
+                                               debug: Optional[bool] = None,
+                                               min_depth: Optional[float] = None,
+                                               max_depth: Optional[float] = None,
+                                               c_conf_threshold: Optional[float] = None,
+                                               use_object_clustering: Optional[bool] = None,
                                                clustering_config: Optional[Dict] = None) -> Optional[Dict]:
     """Create dense semantic reconstruction with track ID support."""
     
+    # Load config to check for use_semantic_colors
+    from mast3r_slam.semantic.config_loader import SemanticConfig
+    sem_config = SemanticConfig(config)
+    
+    # Get use_semantic_colors with override
+    use_colors = use_semantic_colors if use_semantic_colors is not None else sem_config.get_use_semantic_colors()
+    
     reconstructor = DenseSemanticReconstructorTrackedV2(
+        config=config,
         debug=debug,
-        semantic_backend=semantic_backend,
         min_depth=min_depth,
         max_depth=max_depth,
         c_conf_threshold=c_conf_threshold,
@@ -616,7 +641,7 @@ def create_dense_semantic_reconstruction_tracked(keyframes,
     result = reconstructor.create_dense_semantic_pointcloud_tracked(
         keyframes,
         semantic_keyframes,
-        use_semantic_colors=use_semantic_colors
+        use_semantic_colors=use_colors
     )
     
     if result is None:

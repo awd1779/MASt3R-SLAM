@@ -31,87 +31,127 @@ semantic_segmentation:
   frontend_type: "grounded_sam"
   excluded_objects: ["picture"]  # Filter out picture to avoid large masks
   
-  # Model selection configurations - easily customizable
+  # Processing parameters - depth and quality filtering
+  processing:
+    min_depth: 0.1            # Minimum depth threshold for point filtering
+    max_depth: 50.0           # Maximum depth threshold for point filtering
+    c_conf_threshold: 1.5     # SLAM confidence threshold for point quality
+    max_keyframes: 1000       # Maximum number of keyframes to store
+    default_image_height: 480 # Default image height for processing
+    default_image_width: 640  # Default image width for processing
+    global_id_multiplier: 10000  # Multiplier for generating unique global IDs
+  
+  # Mask processing parameters
+  mask_processing:
+    deduplication_iou_threshold: 0.9  # IoU threshold for removing duplicate detections
+    overlap_iou_threshold: 0.8        # IoU threshold for mask overlap resolution
+    containment_threshold: 0.9        # Threshold for mask containment detection
+    large_mask_threshold: 50          # Percentage threshold for large mask warning
+  
+  # Priority weights for mask selection
+  priority_weights:
+    size_priority: 1.0        # Weight for prioritizing smaller objects
+    label_priority: 0.5       # Priority boost for known/valid labels
+    confidence_priority: 0.3  # Weight for detection confidence scores
+  
+  # Object clustering configuration
+  clustering:
+    enabled: true             # Enable/disable object clustering
+    
+    # Clustering pipeline options
+    pipeline:
+      use_adaptive_params: true      # Use geometry-based adaptive parameters
+      use_stacking_detection: true   # Enable multi-viewpoint stacking detection
+      use_post_merge: true           # Enable post-clustering merge
+      debug: false                   # Enable debug logging and reports
+    
+    # Base clustering parameters (used when adaptive_params is false or as base values)
+    base_params:
+      spatial_threshold: 1.0         # Max distance for spatial clustering (meters)
+      temporal_threshold: 25         # Max keyframe gap to consider same object
+      movement_threshold: 0.8        # Max movement to consider same object (meters)
+      min_samples: 1                 # Min samples for DBSCAN clustering
+    
+    # Adaptive parameter engine settings (used when use_adaptive_params is true)
+    adaptive_params:
+      # Base values for adaptive calculation
+      spatial_base: 0.4              # Base spatial threshold (40cm)
+      temporal_base: 10              # Base temporal threshold (10 keyframes)
+      movement_base: 0.3             # Base movement threshold (30cm)
+      merge_base: 0.8                # Base merge distance multiplier
+      
+      # Size category thresholds for adaptive parameters
+      size_thresholds:
+        large:
+          volume: 2.0                # > 2m³ considered large
+          extent: 2.0                # > 2m extent considered large
+        medium:
+          volume: 0.1                # > 0.1m³ considered medium
+          extent: 0.8                # > 0.8m extent considered medium
+        # Everything else is 'small'
+      
+      # Confidence weights by object size
+      confidence_weights:
+        large: 0.6                   # More permissive for large objects
+        medium: 0.8                  # Balanced for medium objects
+        small: 0.9                   # Stricter for small objects
+    
+    # Post-clustering merge parameters
+    merge_params:
+      # Merge thresholds (can be overridden by adaptive system)
+      max_spatial_distance: 2.0      # Max spatial distance for merging
+      min_temporal_overlap: 0.2      # Min temporal overlap requirement
+      max_centroid_distance: 3.0     # Max centroid distance for merging
+      confidence_threshold: 0.4      # Confidence threshold for merge decisions
+      
+      # Merge confidence factors (weights for different criteria)
+      confidence_factors:
+        temporal_weight: 0.3         # Weight for temporal overlap
+        spatial_weight: 0.4          # Weight for spatial proximity
+        extent_weight: 0.2           # Weight for spatial extent overlap
+        geometric_weight: 0.1        # Weight for geometric consistency
+    
+    # Stacking detection parameters
+    stacking_detection:
+      min_confidence: 0.3            # Minimum confidence for stacking detection
+      proximity_threshold: 0.05      # Distance threshold for point overlap (meters)
+      overlap_ratio_threshold: 0.3   # Minimum overlap ratio to consider stacking
+    
+    # Temporal consistency parameters
+    temporal_consistency:
+      max_gap: 15                    # Max keyframe gap before splitting clusters
+      movement_detection:
+        enabled: true                # Enable movement-based cluster splitting
+        threshold: 0.5               # Movement threshold (meters)
+        
+    # Legacy config support (deprecated - use above settings instead)
+    config: null                     # null = use settings above, or provide dict to override
+  
+  # Visualization settings
+  visualization:
+    use_semantic_colors: true     # Apply semantic coloring to point cloud
+    track_color_saturation: 0.8   # HSV saturation for track colors
+    track_color_value: 0.9        # HSV brightness for track colors
+    golden_ratio: 0.618033988749895  # Golden ratio for color distribution
+  
+  # Grounded SAM2 runtime settings
   grounded_sam2:
-    # Available models with performance specs
-    sam2_models:
-      hiera_tiny:
-        checkpoint: "sam2_hiera_tiny.pt"
-        config: "sam2_hiera_t.yaml"
-        params: 39000000  # 39M params
-        fps_estimate: 50
-        vram_gb: 4
-        accuracy: "good"
-        use_case: "real-time applications"
-      hiera_small:
-        checkpoint: "sam2_hiera_small.pt"
-        config: "sam2_hiera_s.yaml"
-        params: 46000000  # 46M params
-        fps_estimate: 35
-        vram_gb: 5
-        accuracy: "better"
-        use_case: "balanced performance"
-      hiera_b+:
-        checkpoint: "sam2_hiera_base_plus.pt"
-        config: "sam2_hiera_b+.yaml"
-        params: 80800000  # 80.8M params
-        fps_estimate: 20
-        vram_gb: 6
-        accuracy: "high"
-        use_case: "research and high-quality reconstruction"
-      hiera_large:
-        checkpoint: "sam2_hiera_large.pt"
-        config: "sam2_hiera_l.yaml"
-        params: 224400000  # 224.4M params
-        fps_estimate: 10
-        vram_gb: 10
-        accuracy: "best"
-        use_case: "offline processing"
-    
-    grounding_models:
-      grounding_dino_swin-t:
-        checkpoint: "groundingdino_swint_ogc.pth"
-        config: "GroundingDINO_SwinT_OGC.py"
-        params: 23000000  # 23M params
-        fps_estimate: 40
-        vram_gb: 3
-        accuracy: "good for simple scenes"
-      grounding_dino_swin-b:
-        checkpoint: "groundingdino_swinb_cogcoor.pth"
-        config: "GroundingDINO_SwinB_cfg.py"
-        params: 88000000  # 88M params
-        fps_estimate: 25
-        vram_gb: 4
-        accuracy: "excellent for complex scenes"
-      grounding_dino_swin-l:
-        checkpoint: "groundingdino_swinl_cogcoor.pth"
-        config: "GroundingDINO_SwinL_cfg.py"
-        params: 197000000  # 197M params
-        fps_estimate: 15
-        vram_gb: 6
-        accuracy: "best, handles rare objects"
-    
-    # Model selection - CHANGE THESE TO SWITCH MODELS
-    model_selection:
-      model_type: "hiera_large"  # Options: hiera_tiny, hiera_small, hiera_b+, hiera_large
-      grounding_model: "grounding_dino_swin-b"  # Options: grounding_dino_swin-t, grounding_dino_swin-b, grounding_dino_swin-l
-    
     # Runtime settings
-    device: "cuda:0"
-    confidence_threshold: 0.20  # Lower = more detections
-    text_threshold: 0.20  # Lower = better text detection
-    dtype: "float32"  # Options: "float32", "float16", "bfloat16"
+    runtime:
+      device: "cuda"             # GPU device for processing
+      dtype: "float32"           # Options: "float32", "float16", "bfloat16"
+      confidence_threshold: 0.30 # Detection confidence (lower = more detections)
+      text_threshold: 0.30       # Text detection threshold
+    
+    # Label filtering settings
+    label_filtering:
+      filter_empty_labels: true  # Remove empty/invalid labels
+      min_phrase_length: 2       # Minimum characters in label
     
     # Debug and evaluation settings
-    debug_mode: true  # Enable for evaluation
-    save_debug_visualizations: true  # Save detection images
-    deduplication_iou_threshold: 0.7  # Lower = more duplicate removal
-    mask_refinement_threshold: 0.7
-    
-    # Label filtering parameters
-    filter_empty_labels: true  # Remove empty/invalid labels
-    min_phrase_length: 2  # Minimum characters in label
-    empty_label_max_size: 0.4  # Only filter large empty detections
+    debug:
+      debug_mode: true                   # Enable debug logging
+      save_debug_visualizations: true    # Save detection images
   
   # Backend settings
   backend:
@@ -119,14 +159,4 @@ semantic_segmentation:
     enable_semantic_factor: false
     semantic_weight: 0.05
 
-# Object tracking configuration - Disabled for debugging
-object_tracking:
-  enabled: false
-  save_tracking_decisions: true
-  save_tracking_visualizations: true
-  visualization_interval: 10
-  log_tracking_stats: true
-  stats_interval: 30
-  log_world_positions: true
-  world_position_interval: 10
-  debug_mode: false
+
