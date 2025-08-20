@@ -211,14 +211,17 @@ if __name__ == "__main__":
     logger = setup_logging(verbose=args.verbose)
     
     load_config(args.config)
-    logger.info(f"Dataset: {args.dataset}")
+    
+    # Use dataset path from config if available, otherwise use command-line arg
+    dataset_path = config.get("dataset", {}).get("path", args.dataset)
+    logger.info(f"Dataset: {dataset_path}")
     logger.debug(f"Config: {config}")
 
     manager = mp.Manager()
     main2viz = new_queue(manager, args.no_viz)
     viz2main = new_queue(manager, args.no_viz)
 
-    dataset = load_dataset(args.dataset)
+    dataset = load_dataset(dataset_path)
     dataset.subsample(config["dataset"]["subsample"])
     h, w = dataset.get_img_shape()[0]
 

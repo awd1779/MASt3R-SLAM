@@ -81,10 +81,10 @@ def compute_spatial_extent_overlap(cluster1: ObjectCluster, cluster2: ObjectClus
     return compute_bounding_box_overlap_volume(bbox1, bbox2)
 
 
-def get_conservative_merge_params(cluster1: ObjectCluster, cluster2: ObjectCluster) -> dict:
+def get_conservative_merge_params(cluster1: ObjectCluster, cluster2: ObjectCluster, config: Optional[Dict] = None) -> dict:
     """Extract and consolidate parameter retrieval logic."""
-    params1 = get_adaptive_merge_config(cluster1)
-    params2 = get_adaptive_merge_config(cluster2)
+    params1 = get_adaptive_merge_config(cluster1, config)
+    params2 = get_adaptive_merge_config(cluster2, config)
     
     return {
         'max_centroid_distance': min(params1['max_centroid_distance'], params2['max_centroid_distance']),
@@ -94,11 +94,11 @@ def get_conservative_merge_params(cluster1: ObjectCluster, cluster2: ObjectClust
     }
 
 
-def compute_geometric_consistency(cluster1: ObjectCluster, cluster2: ObjectCluster) -> float:
+def compute_geometric_consistency(cluster1: ObjectCluster, cluster2: ObjectCluster, config: Optional[Dict] = None) -> float:
     """Check if two clusters could geometrically belong to the same object using geometry-based analysis."""
     
     # Get consolidated parameters
-    params = get_conservative_merge_params(cluster1, cluster2)
+    params = get_conservative_merge_params(cluster1, cluster2, config)
     
     # Use the more conservative (smaller) max distance
     max_distance = params['max_centroid_distance']
@@ -149,7 +149,7 @@ def compute_geometric_consistency(cluster1: ObjectCluster, cluster2: ObjectClust
             return 0.0
 
 
-def evaluate_merge_candidate(cluster1: ObjectCluster, cluster2: ObjectCluster) -> Optional[MergeCandidate]:
+def evaluate_merge_candidate(cluster1: ObjectCluster, cluster2: ObjectCluster, config: Optional[Dict] = None) -> Optional[MergeCandidate]:
     """Evaluate if two clusters should be merged."""
     
     # Check semantic compatibility using centralized utility
@@ -160,13 +160,13 @@ def evaluate_merge_candidate(cluster1: ObjectCluster, cluster2: ObjectCluster) -
         return None  # Different object types, don't merge
     
     # Get consolidated conservative parameters
-    params = get_conservative_merge_params(cluster1, cluster2)
+    params = get_conservative_merge_params(cluster1, cluster2, config)
     
     # Compute metrics
     temporal_overlap = compute_temporal_overlap(cluster1, cluster2)
     centroid_distance = compute_euclidean_distance(cluster1.avg_centroid, cluster2.avg_centroid)
     spatial_extent_overlap = compute_spatial_extent_overlap(cluster1, cluster2)
-    geometric_consistency = compute_geometric_consistency(cluster1, cluster2)
+    geometric_consistency = compute_geometric_consistency(cluster1, cluster2, config)
     
     # Check basic constraints
     if centroid_distance > params['max_centroid_distance']:
@@ -250,7 +250,7 @@ def merge_two_clusters(cluster1: ObjectCluster, cluster2: ObjectCluster, new_clu
     return merged_cluster
 
 
-def find_merge_candidates(clusters: List[ObjectCluster]) -> List[MergeCandidate]:
+def find_merge_candidates(clusters: List[ObjectCluster], config: Optional[Dict] = None) -> List[MergeCandidate]:
     """Find all valid merge candidates among clusters."""
     
     candidates = []
@@ -272,7 +272,7 @@ def find_merge_candidates(clusters: List[ObjectCluster]) -> List[MergeCandidate]
         
         for i in range(len(label_clusters)):
             for j in range(i + 1, len(label_clusters)):
-                candidate = evaluate_merge_candidate(label_clusters[i], label_clusters[j])
+                candidate = evaluate_merge_candidate(label_clusters[i], label_clusters[j], config)
                 if candidate:
                     candidates.append(candidate)
     
@@ -335,7 +335,8 @@ def execute_merges(clusters: List[ObjectCluster], candidates: List[MergeCandidat
 
 def post_clustering_merge(clusters: List[ObjectCluster], 
                          max_iterations: int = 3,
-                         min_confidence: float = 0.7) -> List[ObjectCluster]:
+                         min_confidence: float = 0.7,
+                         config: Optional[Dict] = None) -> List[ObjectCluster]:
     """
     Main post-clustering merge function.
     
@@ -360,7 +361,7 @@ def post_clustering_merge(clusters: List[ObjectCluster],
         logger.info(f"Merge iteration {iteration + 1}/{max_iterations}")
         
         # Find merge candidates
-        candidates = find_merge_candidates(current_clusters)
+        candidates = find_merge_candidates(current_clusters, config)
         
         # Filter by minimum confidence
         candidates = [c for c in candidates if c.merge_confidence >= min_confidence]

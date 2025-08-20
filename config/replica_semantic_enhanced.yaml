@@ -6,6 +6,7 @@ verbose: true
 
 # Dataset settings optimized for Replica
 dataset:
+  path: "datasets/room_0"  # Dataset directory path
   subsample: 1  # Use every frame
   img_size: 512  # Standard size for 512x512 images
   center_principle_point: false  # Replica provides good intrinsics
@@ -35,7 +36,7 @@ semantic_segmentation:
   processing:
     min_depth: 0.1            # Minimum depth threshold for point filtering
     max_depth: 50.0           # Maximum depth threshold for point filtering
-    c_conf_threshold: 1.5     # SLAM confidence threshold for point quality
+    c_conf_threshold: 0.95     # SLAM confidence threshold for point quality (lowered from 0.95 for better clustering)
     max_keyframes: 1000       # Maximum number of keyframes to store
     default_image_height: 480 # Default image height for processing
     default_image_width: 640  # Default image width for processing
@@ -43,9 +44,9 @@ semantic_segmentation:
   
   # Mask processing parameters
   mask_processing:
-    deduplication_iou_threshold: 0.9  # IoU threshold for removing duplicate detections
-    overlap_iou_threshold: 0.8        # IoU threshold for mask overlap resolution
-    containment_threshold: 0.9        # Threshold for mask containment detection
+    deduplication_iou_threshold: 0.95 # IoU threshold for removing duplicate detections (higher = fewer removed)
+    overlap_iou_threshold: 0.9        # IoU threshold for mask overlap resolution (higher = fewer removed)
+    containment_threshold: 0.95       # Threshold for mask containment detection (higher = fewer removed)
     large_mask_threshold: 50          # Percentage threshold for large mask warning
   
   # Priority weights for mask selection
@@ -63,13 +64,13 @@ semantic_segmentation:
       use_adaptive_params: true      # Use geometry-based adaptive parameters
       use_stacking_detection: true   # Enable multi-viewpoint stacking detection
       use_post_merge: true           # Enable post-clustering merge
-      debug: false                   # Enable debug logging and reports
+      debug: true                    # Enable debug logging and reports - ENABLED for cleanup testing
     
     # Base clustering parameters (used when adaptive_params is false or as base values)
     base_params:
-      spatial_threshold: 1.0         # Max distance for spatial clustering (meters)
-      temporal_threshold: 25         # Max keyframe gap to consider same object
-      movement_threshold: 0.8        # Max movement to consider same object (meters)
+      spatial_threshold: 0.3         # Max distance for spatial clustering (meters) - optimized for indoor scenes
+      temporal_threshold: 15         # Max keyframe gap to consider same object - reduced for better clustering
+      movement_threshold: 0.5        # Max movement to consider same object (meters) - more conservative
       min_samples: 1                 # Min samples for DBSCAN clustering
     
     # Adaptive parameter engine settings (used when use_adaptive_params is true)
@@ -99,10 +100,10 @@ semantic_segmentation:
     # Post-clustering merge parameters
     merge_params:
       # Merge thresholds (can be overridden by adaptive system)
-      max_spatial_distance: 2.0      # Max spatial distance for merging
+      max_spatial_distance: 1.0      # Max spatial distance for merging - reduced for indoor scenes
       min_temporal_overlap: 0.2      # Min temporal overlap requirement
-      max_centroid_distance: 3.0     # Max centroid distance for merging
-      confidence_threshold: 0.4      # Confidence threshold for merge decisions
+      max_centroid_distance: 1.5     # Max centroid distance for merging - reduced for better precision
+      confidence_threshold: 0.5      # Confidence threshold for merge decisions - increased from 0.4
       
       # Merge confidence factors (weights for different criteria)
       confidence_factors:
@@ -136,11 +137,30 @@ semantic_segmentation:
   
   # Grounded SAM2 runtime settings
   grounded_sam2:
+    # Model selection
+    model_selection:
+      model_type: "sam2_hiera_large"  # SAM2 model variant
+      grounding_model: "groundingdino_swinb_cogcoor"  # GroundingDINO model variant
+    
+    # Model paths configuration
+    sam2_models:
+      sam2_hiera_large:
+        config: "sam2_hiera_l.yaml"
+        checkpoint: "sam2_hiera_large.pt"
+      sam2_hiera_base_plus:
+        config: "sam2_hiera_b+.yaml"
+        checkpoint: "sam2_hiera_base_plus.pt"
+    
+    grounding_models:
+      groundingdino_swinb_cogcoor:
+        config: "models/GroundingDINO/config/GroundingDINO_SwinB_cfg.py"
+        checkpoint: "groundingdino_swinb_cogcoor.pth"
+    
     # Runtime settings
     runtime:
       device: "cuda"             # GPU device for processing
       dtype: "float32"           # Options: "float32", "float16", "bfloat16"
-      confidence_threshold: 0.30 # Detection confidence (lower = more detections)
+      confidence_threshold: 0.25 # Detection confidence (lower = more detections)
       text_threshold: 0.30       # Text detection threshold
     
     # Label filtering settings

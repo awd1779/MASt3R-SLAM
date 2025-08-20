@@ -117,27 +117,46 @@ def enhanced_hybrid_cluster_objects(instances: List[ObjectInstance],
             logger.info(f"  No hardcoded object categories - fully adaptive!")
             
     else:
-        # Use provided config or load defaults from config
+        # Use provided config with proper fallback chain
         if global_config and 'base_params' in global_config:
-            config = global_config['base_params']
+            config = global_config['base_params'].copy()
         elif global_config:
-            # Legacy support - use global_config directly
-            config = global_config
-        else:
-            # Hard-coded defaults as last resort
+            # Legacy support - extract parameters from global_config
             config = {
-                'spatial_threshold': 1.0,
-                'temporal_threshold': 25, 
-                'movement_threshold': 0.8,
+                'spatial_threshold': global_config.get('spatial_threshold', 0.3),  # Indoor-appropriate default
+                'temporal_threshold': global_config.get('temporal_threshold', 15),  # Reduced from 25
+                'movement_threshold': global_config.get('movement_threshold', 0.5),  # Reduced from 0.8
+                'min_samples': global_config.get('min_samples', 1)
+            }
+        else:
+            # Improved defaults for indoor scenes (no more 1.0m spatial!)
+            logger.warning("No config provided - using improved indoor scene defaults")
+            config = {
+                'spatial_threshold': 0.3,   # Much better for indoor scenes than 1.0m
+                'temporal_threshold': 15,   # More reasonable than 25
+                'movement_threshold': 0.5,  # More reasonable than 0.8m
                 'min_samples': 1
             }
         
         if use_adaptive_params and not all_points_data:
-            logger.warning("Adaptive params requested but no point cloud data available - using defaults")
+            logger.warning("Adaptive params requested but no point cloud data available - using config/defaults")
     
     logger.info(f"Using clustering config: spatial={config['spatial_threshold']:.2f}m, "
                f"temporal={config['temporal_threshold']}kf, "
-               f"movement={config['movement_threshold']:.2f}m")
+               f"movement={config['movement_threshold']:.2f}m, "
+               f"min_samples={config['min_samples']}")
+    
+    if debug:
+        logger.info(f"📊 CLUSTERING CONFIGURATION DETAILS:")
+        logger.info(f"  Config source: {'adaptive' if use_adaptive_params else 'base_params/legacy'}")
+        logger.info(f"  Spatial threshold: {config['spatial_threshold']:.3f}m (indoor-optimized)")
+        logger.info(f"  Temporal threshold: {config['temporal_threshold']} keyframes")
+        logger.info(f"  Movement threshold: {config['movement_threshold']:.3f}m")
+        logger.info(f"  Min samples: {config['min_samples']}")
+        if global_config:
+            merge_params = global_config.get('merge_params', {})
+            logger.info(f"  Merge confidence threshold: {merge_params.get('confidence_threshold', 'not set')}")
+            logger.info(f"  Max merge distance: {merge_params.get('max_spatial_distance', 'not set')}m")
     
     # Step 2: Optional stacking detection (early stage)
     if use_stacking_detection and all_points_data:
@@ -212,7 +231,7 @@ def enhanced_hybrid_cluster_objects(instances: List[ObjectInstance],
                 logger.debug(f"  Geometry-based params for '{base_label}': "
                             f"spatial={spatial_thresh:.2f}m, temporal={temporal_thresh}kf")
             
-            # Apply spatial clustering
+            # Apply spatial clustering with config
             spatial_clusters = dbscan_spatial_cluster(label_instances, spatial_thresh, min_samples)
             logger.debug(f"  Spatial clustering created {len(spatial_clusters)} clusters")
             
@@ -242,10 +261,15 @@ def enhanced_hybrid_cluster_objects(instances: List[ObjectInstance],
         logger.info("Applying post-clustering merge...")
         
         try:
+            # Get merge parameters from config or use reasonable defaults
+            merge_params = global_config.get('merge_params', {}) if global_config else {}
+            merge_confidence = merge_params.get('confidence_threshold', 0.5)  # Use config value
+            
             merged_clusters = post_clustering_merge(
                 initial_clusters,
                 max_iterations=3,
-                min_confidence=0.5  # Lowered from 0.7 to be more permissive
+                min_confidence=merge_confidence,  # Use config-driven value
+                config=global_config
             )
             
             merge_reduction = len(initial_clusters) - len(merged_clusters)
@@ -275,10 +299,12 @@ def enhanced_hybrid_cluster_objects(instances: List[ObjectInstance],
         cluster.label = f"{base_label}_obj_{i:03d}"
     
     # Generate final statistics
-    logger.info(f"Enhanced clustering complete:")
-    logger.info(f"  Input instances: {len(instances)}")
-    logger.info(f"  Output clusters: {len(final_clusters)}")
-    logger.info(f"  Reduction ratio: {len(instances) / len(final_clusters):.2f}:1")
+    reduction_ratio = len(instances) / len(final_clusters) if len(final_clusters) > 0 else 0
+    logger.info(f"✅ Enhanced clustering complete:")
+    logger.info(f"  📥 Input instances: {len(instances)}")
+    logger.info(f"  📤 Output clusters: {len(final_clusters)}")
+    logger.info(f"  📉 Reduction ratio: {reduction_ratio:.2f}:1")
+    logger.info(f"  🎯 Clustering effectiveness: {((reduction_ratio - 1) / len(instances) * 100) if len(instances) > 0 else 0:.1f}%")
     
     if debug:
         # Detailed cluster analysis

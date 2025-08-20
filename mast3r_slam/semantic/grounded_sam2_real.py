@@ -283,7 +283,19 @@ class RealGroundedSAM2Processor:
             if not grounding_cfg:
                 # Get config file from model configs or fallback
                 if self.model_configs and 'grounding_models' in self.model_configs:
-                    config_filename = self.model_configs['grounding_models'][self.grounding_model_name]["config"]
+                    config_path = self.model_configs['grounding_models'][self.grounding_model_name]["config"]
+                    
+                    # If config_path is absolute or relative, use it directly
+                    if Path(config_path).is_absolute() or config_path.startswith('models/'):
+                        grounding_cfg = str(Path(config_path)) if Path(config_path).exists() else None
+                    else:
+                        # Fallback to old behavior for filename only
+                        config_filename = config_path
+                        config_paths = [
+                            Path.home() / "Grounded-SAM-2" / "grounding_dino" / "groundingdino" / "config" / config_filename,
+                            Path(grounding_ckpt).parent.parent / "groundingdino" / "config" / config_filename
+                        ]
+                        grounding_cfg = next((str(p) for p in config_paths if p.exists()), None)
                 else:
                     # Fallback config mapping
                     grounding_config_files = {
@@ -292,12 +304,11 @@ class RealGroundedSAM2Processor:
                         "grounding_dino_swin-l": "GroundingDINO_SwinL_cfg.py"
                     }
                     config_filename = grounding_config_files.get(self.grounding_model_name, "GroundingDINO_SwinB_cfg.py")
-                
-                config_paths = [
-                    Path.home() / "Grounded-SAM-2" / "grounding_dino" / "groundingdino" / "config" / config_filename,
-                    Path(grounding_ckpt).parent.parent / "groundingdino" / "config" / config_filename
-                ]
-                grounding_cfg = next((str(p) for p in config_paths if p.exists()), None)
+                    config_paths = [
+                        Path.home() / "Grounded-SAM-2" / "grounding_dino" / "groundingdino" / "config" / config_filename,
+                        Path(grounding_ckpt).parent.parent / "groundingdino" / "config" / config_filename
+                    ]
+                    grounding_cfg = next((str(p) for p in config_paths if p.exists()), None)
                 
             self.grounding_dino = load_model(grounding_cfg, grounding_ckpt, device=self.device)
             self.grounding_dino.eval()

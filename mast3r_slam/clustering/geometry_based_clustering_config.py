@@ -170,27 +170,3 @@ def analyze_clustering_effectiveness(instances, clusters, all_points_data: Dict)
     return effectiveness
 
 
-# Testing and validation
-if __name__ == "__main__":
-    # Test geometric property computation
-    print("Testing Geometry-Based Clustering Configuration")
-    print("=" * 50)
-    
-    # Create test point clouds
-    test_cases = [
-        ("Large wall-like object", np.random.rand(1000, 3) * [5, 3, 0.1] + [0, 0, 1]),
-        ("Medium table-like object", np.random.rand(500, 3) * [1.5, 1, 0.1] + [2, 2, 0.8]),
-        ("Small book-like object", np.random.rand(100, 3) * [0.3, 0.2, 0.05] + [1, 1, 1]),
-    ]
-    
-    for name, points in test_cases:
-        print(f"\n{name}:")
-        geometry = compute_geometric_properties(points)
-        params = derive_adaptive_parameters(geometry)
-        
-        print(f"  Volume: {geometry.volume:.3f}m³")
-        print(f"  Spatial extent: {geometry.spatial_extent:.2f}m")
-        print(f"  Category: {geometry.estimated_size_category}")
-        print(f"  Spatial threshold: {params.spatial_threshold:.2f}m")
-        print(f"  Temporal threshold: {params.temporal_threshold}kf")
-        print(f"  Movement threshold: {params.movement_threshold:.2f}m")

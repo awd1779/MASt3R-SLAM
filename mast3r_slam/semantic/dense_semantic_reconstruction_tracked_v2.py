@@ -223,12 +223,20 @@ class DenseSemanticReconstructorTrackedV2:
         confidence_valid_count = np.sum(confidence_valid)
         final_valid_count = np.sum(valid_mask)
         
-        logger.debug(f"Keyframe {kf_idx}: Point filtering analysis (SLAM-quality):")
-        logger.debug(f"  Total points: {total_points}")
-        logger.debug(f"  Geometrically valid: {geometric_valid_count} ({geometric_valid_count/total_points*100:.1f}%)")
-        logger.debug(f"  With semantic labels: {semantic_valid_count} ({semantic_valid_count/total_points*100:.1f}%)")
-        logger.debug(f"  High confidence (>{self.c_conf_threshold}): {confidence_valid_count} ({confidence_valid_count/total_points*100:.1f}%)")
-        logger.debug(f"  Final valid points: {final_valid_count} ({final_valid_count/total_points*100:.1f}%)")
+        logger.info(f"🔍 Keyframe {kf_idx}: Point filtering analysis (SLAM-quality):")
+        logger.info(f"  📊 Total points: {total_points}")
+        logger.info(f"  📐 Geometrically valid: {geometric_valid_count} ({geometric_valid_count/total_points*100:.1f}%)")
+        logger.info(f"  🏷️  With semantic labels: {semantic_valid_count} ({semantic_valid_count/total_points*100:.1f}%)")
+        logger.info(f"  ⭐ High confidence (>{self.c_conf_threshold}): {confidence_valid_count} ({confidence_valid_count/total_points*100:.1f}%)")
+        logger.info(f"  📈 Confidence stats: min={conf_values.min():.2f}, max={conf_values.max():.2f}, mean={conf_values.mean():.2f}")
+        logger.info(f"  ✅ Final valid points: {final_valid_count} ({final_valid_count/total_points*100:.1f}%)")
+        
+        # Warn if too few points survive filtering
+        survival_rate = final_valid_count / total_points if total_points > 0 else 0
+        if survival_rate < 0.1:  # Less than 10% survival
+            logger.warning(f"⚠️  Very low point survival rate ({survival_rate*100:.1f}%) - consider lowering c_conf_threshold")
+        elif survival_rate < 0.3:  # Less than 30% survival
+            logger.warning(f"⚠️  Low point survival rate ({survival_rate*100:.1f}%) - clustering may be affected")
         
         # Extract valid points while preserving exact correspondence
         points_3d = X_world[valid_mask]

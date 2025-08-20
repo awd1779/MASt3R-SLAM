@@ -1,0 +1,7 @@
+  python evaluate_no_alignment.py \
+      --gt /home/ubuntu/HOV-SG/Datasets/Replica/office0_mesh.ply \
+      --hovsg /home/ubuntu/HOV-SG/evaluation_results/replica/masked_pcd.ply \
+      --monocular2map /home/ubuntu/restart_from_scratch/logs/logs/tracked_3d_global_improved_filtered/room_0/room_0_semantic_dense_tracked_3d.ply \
+      --output comparison_results/
+
+

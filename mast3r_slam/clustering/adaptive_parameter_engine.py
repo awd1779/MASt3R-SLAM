@@ -360,11 +360,18 @@ def get_adaptive_clustering_config(instances, all_points_data: Dict, config: Opt
     return engine.get_clustering_config_dict(combined_points, cache_key="global_clustering")
 
 
-def get_adaptive_merge_config(cluster) -> Dict:
+def get_adaptive_merge_config(cluster, config: Optional[Dict] = None) -> Dict:
     """
     Replacement for post_clustering_merge.get_geometry_based_merge_params()
     
     This function maintains the same interface but uses the unified parameter engine.
+    
+    Args:
+        cluster: The cluster to get merge config for
+        config: Optional configuration dict
+    
+    Returns:
+        Dict with adaptive merge configuration
     """
     engine = get_parameter_engine(config)
     return engine.get_merge_config_dict(cluster)

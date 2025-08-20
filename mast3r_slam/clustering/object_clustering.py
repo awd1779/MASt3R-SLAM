@@ -175,7 +175,7 @@ def create_object_cluster(instances: List[ObjectInstance], cluster_id: int = 0) 
     return cluster
 
 
-def validate_temporal_consistency(cluster: ObjectCluster, temporal_threshold: int = 15) -> List[ObjectCluster]:
+def validate_temporal_consistency(cluster: ObjectCluster, temporal_threshold: int) -> List[ObjectCluster]:
     """
     Check if cluster makes sense temporally and split if needed.
     
@@ -219,7 +219,7 @@ def validate_temporal_consistency(cluster: ObjectCluster, temporal_threshold: in
     return subclusters
 
 
-def detect_object_movement(cluster: ObjectCluster, movement_threshold: float = 0.5) -> List[ObjectCluster]:
+def detect_object_movement(cluster: ObjectCluster, movement_threshold: float) -> List[ObjectCluster]:
     """
     Detect if clustered object actually moved between keyframes and split if needed.
     

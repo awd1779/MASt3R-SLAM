@@ -1,0 +1,90 @@
+# 3D Reconstruction Evaluation (No Alignment)
+
+## Monocular2Map
+
+Point Counts:
+  Predicted: 1,327,818
+  Ground Truth: 589,517
+
+Spatial Properties:
+  Predicted Extent: 9.893 m
+  GT Extent: 7.308 m
+  Scale Ratio: 1.354
+  Predicted Center: [0.281, 0.703, 0.752]
+  GT Center: [0.306, -0.750, 0.227]
+
+Distance Metrics:
+  Chamfer Distance: 0.5256 m
+  Accuracy: 0.3554 m
+  Completeness: 0.6957 m
+  Hausdorff Distance: 2.3502 m
+
+F-scores:
+  F@0.010: 0.0151
+  F@0.020: 0.0330
+  F@0.050: 0.0784
+  F@0.100: 0.1460
+  F@0.200: 0.2733
+  F@0.500: 0.5782
+
+Distance Statistics:
+  Predicted→GT:
+    mean: 0.3554 m
+    median: 0.2808 m
+    std: 0.2943 m
+    min: 0.0003 m
+    max: 1.8101 m
+    p95: 0.9535 m
+  GT→Predicted:
+    mean: 0.6957 m
+    median: 0.5402 m
+    std: 0.5611 m
+    min: 0.0003 m
+    max: 2.3502 m
+    p95: 1.8193 m
+
+
+## HOV-SG
+
+Point Counts:
+  Predicted: 915,878
+  Ground Truth: 589,517
+
+Spatial Properties:
+  Predicted Extent: 7.248 m
+  GT Extent: 7.308 m
+  Scale Ratio: 0.992
+  Predicted Center: [0.360, -0.345, -0.238]
+  GT Center: [0.306, -0.750, 0.227]
+
+Distance Metrics:
+  Chamfer Distance: 0.0750 m
+  Accuracy: 0.0052 m
+  Completeness: 0.1448 m
+  Hausdorff Distance: 1.7122 m
+
+F-scores:
+  F@0.010: 0.6846
+  F@0.020: 0.8027
+  F@0.050: 0.8335
+  F@0.100: 0.8727
+  F@0.200: 0.9095
+  F@0.500: 0.9421
+
+Distance Statistics:
+  Predicted→GT:
+    mean: 0.0052 m
+    median: 0.0054 m
+    std: 0.0018 m
+    min: 0.0001 m
+    max: 0.0119 m
+    p95: 0.0080 m
+  GT→Predicted:
+    mean: 0.1448 m
+    median: 0.0098 m
+    std: 0.3213 m
+    min: 0.0001 m
+    max: 1.7122 m
+    p95: 0.9550 m
+
+
